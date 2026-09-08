@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  I provider IPTV servono quasi sempre gli stream in HTTP semplice.
+
+  Da API 28 il default è cleartextTrafficPermitted="false": senza questa
+  configurazione le connessioni http:// falliscono **in silenzio**, e il canale
+  resta nero senza un errore che spieghi perché.
+
+  Non è possibile restringere per dominio: gli host sono URL inseriti
+  dall'utente e non sono noti a priori.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
