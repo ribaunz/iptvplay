@@ -6,8 +6,8 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | Fasi **0**, **2**, **3** completate; **1** e **4** implementate ma non validate sul campo |
-| **Prossimo passo** | **Fase 5 — EPG XMLTV**. Restano aperte la **1** (serve un Android fisico) e la **4** (serve un provider reale) |
+| **Stato progetto** | Fasi **0**, **2**, **3**, **5** completate; **1** e **4** implementate ma non validate sul campo |
+| **Prossimo passo** | **Fase 6 — UI**. Restano aperte la **1** (serve un Android fisico) e la **4** (serve un provider reale) |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -795,11 +795,48 @@ Realizzato in `lib/features/playlists/data/`:
 
 > ⚠️ **Questa fase NON è chiusa.** Il criterio richiede la validazione contro **almeno due pannelli reali**, e le action della §6 restano quelle non confermate dalla documentazione ufficiale (solo `get_live_streams` e `get_short_epg` lo sono). I test dimostrano che il client **regge le divergenze note**, non che lo schema sia quello giusto. Serve un provider vero.
 
-### Fase 5 — EPG XMLTV
+### Fase 5 — EPG XMLTV ✅ COMPLETATA (8 settembre 2026)
 
-Pipeline streaming completa con gunzip, SAX, filtro tvg-id e retention window.
+Pipeline interamente in streaming, come previsto:
 
-**Completa quando:** un `.xml.gz` da centinaia di MB si importa su native senza esaurire la memoria, e su web il limite di dimensione degrada con un messaggio chiaro invece di far crashare il tab.
+```
+byte HTTP → gunzip (se serve) → utf8 → SAX → filtro tvg-id → retention → batch insert
+```
+
+Nulla viene mai materializzato per intero: né il file, né l'albero XML, né la lista di programmi. Realizzato in:
+
+- **`lib/core/net/gzip_stream.dart`** (+ `_io` / `_web`) — decompressione cross-platform.
+- **`lib/features/epg/data/xmltv_parser.dart`** — parser SAX a eventi.
+- **`lib/features/epg/data/epg_importer.dart`** — scrittura su drift con filtro e retention.
+
+**29 test** dedicati (114 nel progetto).
+
+#### Il gzip va rilevato, non assunto
+
+Il piano segnalava che `.xml.gz` è spesso servito come `application/octet-stream` e quindi **non** decompresso dal client HTTP. Ma vale anche il contrario: se il server dichiara `Content-Encoding: gzip`, il client lo ha già decompresso. Decidere in base all'estensione o al content-type rompe metà dei provider in un verso o nell'altro.
+
+→ Si **annusano i due byte magici** `1F 8B` e si decomprime solo se servono davvero. Lo sniffing accumula i primi chunk prima di decidere, quindi funziona anche se i byte arrivano frammentati (testato con un byte per chunk).
+
+Su native si usa `GZipCodec().decoder`, un vero `StreamTransformer`. Su web si usa **`DecompressionStream('gzip')` nativo del browser**: costo zero in bundle e decompressione fuori dal main thread — preferibile al `GZipDecoder` di `package:archive`, che è puro Dart e, senza isolate su web, bloccherebbe il tab.
+
+#### Il filtro sui tvg-id è l'ottimizzazione decisiva
+
+Misurato dal test sul dataset grande: 500 canali dichiarati nell'XMLTV, 20 presenti nella playlist dell'utente → **400 programmi importati su 10.000**, oltre 9.000 scartati **prima di diventare oggetti**. È il rapporto tipico di un XMLTV pubblico.
+
+Ricaduta di design: se nella playlist **nessun** canale ha `tvg-id`, non c'è nulla su cui filtrare e si importa tutto, invece di importare zero.
+
+#### Altri comportamenti verificati
+
+- **Formato orario XMLTV** (`20260908140500 +0200`) — la parte più facile da sbagliare: offset assente (si assume UTC per convenzione), `+0200`, `+02:00`, offset a mezz'ora come `+0530`, e input non validi che restituiscono `null` invece di lanciare.
+- **Retention window** −1/+3 giorni applicata **durante** il parsing, così i programmi fuori intervallo non diventano mai oggetti, più il purge finale in database.
+- **Canali dichiarati solo nei `<programme>`**, senza un `<channel>` corrispondente: creati al volo invece di perdere il palinsesto.
+- CDATA nei titoli, `display-name` multilingua (si tiene il primo), canali senza `id`, programmi senza titolo o con orari illeggibili.
+- **Streaming verificato**: un test alimenta il documento a pezzi e controlla che il primo programma sia emesso mentre lo stream è ancora aperto.
+- Reimport idempotente: non duplica canali né programmi.
+
+> ⚠️ **Trappola SQL trovata qui**: in SQLite `""` è un **identificatore**, non una stringa vuota. La query `tvg_id != ""` fallisce con *"no such column"*. Servono gli apici singoli: `tvg_id != ''`.
+
+> **Nota sul limite web**: il criterio originale prevedeva un messaggio di degrado esplicito su web per gli EPG troppo grandi. Il filtro sui tvg-id riduce il problema di un ordine di grandezza e la decompressione è nativa del browser, ma **la soglia di dimensione andrà tarata in Fase 7** con misure reali su browser, non stimata adesso.
 
 ### Fase 6 — UI
 
