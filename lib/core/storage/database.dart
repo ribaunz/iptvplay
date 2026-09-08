@@ -27,6 +27,14 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? _defaultExecutor());
 
+  /// Database separato, con un proprio file.
+  ///
+  /// Serve agli strumenti di sviluppo: il benchmark inserisce 50.000 righe
+  /// fittizie, e senza questa separazione finiscono nei dati reali
+  /// dell'utente — cosa che è già successa una volta.
+  factory AppDatabase.named(String name) =>
+      AppDatabase(_defaultExecutor(name: name));
+
   /// Tier di persistenza scelto da drift su web, e funzionalità mancanti.
   ///
   /// Interessa perché la scelta cade su OPFS solo con gli header COOP/COEP, che
@@ -36,9 +44,9 @@ class AppDatabase extends _$AppDatabase {
   static String? webStorageTier;
   static String? webMissingFeatures;
 
-  static QueryExecutor _defaultExecutor() {
+  static QueryExecutor _defaultExecutor({String name = 'iptvplay'}) {
     return driftDatabase(
-      name: 'iptvplay',
+      name: name,
       web: DriftWebOptions(
         // Entrambi vanno serviti da web/ e devono provenire dalla STESSA
         // release di drift: un mismatch produce crash difficili da diagnosticare.
@@ -120,6 +128,48 @@ class AppDatabase extends _$AppDatabase {
         .toList();
     if (tokens.isEmpty) return null;
     return tokens.map((t) => '"$t"*').join(' ');
+  }
+
+  /// Programma in onda e successivo, per i canali indicati.
+  ///
+  /// Si interroga **una volta per pagina visibile**, non una volta per riga:
+  /// con 50 righe a schermo, 50 query separate sarebbero il costo dominante
+  /// dello scroll.
+  Future<Map<String, List<Programme>>> nowAndNext(
+    int playlistId,
+    List<String> tvgIds, {
+    DateTime? at,
+  }) async {
+    if (tvgIds.isEmpty) return const {};
+    final now = (at ?? DateTime.now()).toUtc();
+    final placeholders = List.filled(tvgIds.length, '?').join(',');
+
+    final rows = await customSelect(
+      '''
+      SELECT p.*, e.xmltv_id AS xid
+      FROM programmes p
+      JOIN epg_channels e ON e.id = p.epg_channel_id
+      WHERE e.playlist_id = ?
+        AND e.xmltv_id IN ($placeholders)
+        AND p.stop_utc > ?
+      ORDER BY e.xmltv_id, p.start_utc
+      ''',
+      variables: [
+        Variable<int>(playlistId),
+        for (final id in tvgIds) Variable<String>(id),
+        Variable<DateTime>(now),
+      ],
+      readsFrom: {programmes, epgChannels},
+    ).get();
+
+    final out = <String, List<Programme>>{};
+    for (final r in rows) {
+      final xid = r.read<String>('xid');
+      final list = out.putIfAbsent(xid, () => []);
+      // Bastano il corrente e il prossimo: il resto è per la scheda canale.
+      if (list.length < 2) list.add(programmes.map(r.data));
+    }
+    return out;
   }
 
   /// Applica la retention window all'EPG.

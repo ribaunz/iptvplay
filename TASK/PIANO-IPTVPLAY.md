@@ -6,8 +6,8 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | Fasi **0**, **2**, **3**, **5** completate; **1** e **4** implementate ma non validate sul campo |
-| **Prossimo passo** | **Fase 6 — UI**. Restano aperte la **1** (serve un Android fisico) e la **4** (serve un provider reale) |
+| **Stato progetto** | Fasi **0**, **2**, **3**, **5** completate; **1**, **4**, **6** implementate ma non del tutto validate |
+| **Prossimo passo** | **Fase 7 — backend web e capability detection**. Aperte: **1** (Android fisico), **4** (provider reale), **6** (verifica Android) |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -838,11 +838,48 @@ Ricaduta di design: se nella playlist **nessun** canale ha `tvg-id`, non c'è nu
 
 > **Nota sul limite web**: il criterio originale prevedeva un messaggio di degrado esplicito su web per gli EPG troppo grandi. Il filtro sui tvg-id riduce il problema di un ordine di grandezza e la decompressione è nativa del browser, ma **la soglia di dimensione andrà tarata in Fase 7** con misure reali su browser, non stimata adesso.
 
-### Fase 6 — UI
+### Fase 6 — UI 🟡 funzionante su Windows, da verificare su Android (8 settembre 2026)
 
-Gestione multi-lista, wizard di aggiunta (M3U da URL / M3U da file / Xtream), navigazione gruppi, ricerca, preferiti, guida EPG, player a schermo intero con controlli.
+Flusso completo realizzato e **verificato a schermo** su Windows: liste → gruppi → ricerca → canale → player. Riverpod 3 per lo stato, nessun router esterno (la navigazione è a due livelli, `Navigator` basta).
 
-**Completa quando:** il flusso completo — aggiungi lista → naviga gruppi → cerca → apri canale → guarda EPG — funziona end-to-end su Windows e Android.
+#### Direzione visiva
+
+Il riferimento non è un catalogo di streaming ma la **regia di trasmissione**, perché il lavoro vero non è mostrare copertine: è orientarsi in un catalogo enorme e disordinato fornito dall'utente.
+
+| Token | Valore | Ruolo |
+|---|---|---|
+| `ink` | `#0E1216` | fondo, grafite freddo |
+| `panel` / `panelHigh` | `#161C22` / `#1F272F` | superfici |
+| `line` | `#2A343E` | filetti |
+| `text` / `muted` | `#E8EDF2` / `#8FA0B0` | testo |
+| `tally` | `#F0A93B` | **unico accento** — la lampada ambra della regia |
+| `onAir` | `#E15B4C` | solo il punto di messa in onda |
+
+Tipografia **Barlow** (400/500/600, bundled in `assets/fonts/`), scelta perché leggermente stretta e quindi adatta alla densità. **Cifre tabulari** su numeri di canale e orari: in un elenco di palinsesto le cifre a larghezza variabile impediscono la scansione verticale.
+
+#### L'elemento firma: il filetto di avanzamento
+
+Ogni riga porta il programma in onda e un segmento che mostra quanto è trascorso. Non è decorazione: codifica informazione reale e dice a colpo d'occhio se conviene entrare adesso o aspettare il prossimo.
+
+#### Tre correzioni dopo aver guardato gli screenshot
+
+Il primo tentativo sembrava ragionevole nel codice ed era sbagliato a schermo:
+
+1. **Il filetto attraversava ~1700 px** e diventava la cosa più rumorosa della pagina, ripetuta a ogni riga: leggeva come divisorio decorativo, non come misuratore. Ora è un segmento fisso da 160 px.
+2. **L'orario era all'estremo destro**, a 1700 px dal titolo che descriveva — associazione spezzata. Ora orario e filetto stanno insieme: sono la stessa informazione.
+3. **Righe lunghissime** su schermo ultrawide. Ricerca e lista condividono ora una colonna da 1040 px; oltre, la lunghezza di riga supera il leggibile.
+
+#### Scelte di scrittura
+
+Gli stati vuoti sono inviti ad agire, non vicoli ciechi. I fallimenti dicono cosa è successo e cosa fare: il player mostra *"Il canale non parte"* con **Riprova** e **Cambia motore** — e cambiare motore è un rimedio reale, perché media_kit e fvp falliscono su stream diversi (misurato in Fase 1). Su web l'avviso sui limiti del browser compare **prima** del tentativo, così l'utente non crede che l'app sia rotta.
+
+#### Modalità di sviluppo
+
+`--dart-define=DEMO=true` popola una lista **sintetica** per sviluppo e screenshot. Non viola la regola BYO-playlist di §1: i canali non puntano a nulla di riproducibile e l'app spedita resta vuota al primo avvio.
+
+> ⚠️ **Bug trovato guardando lo screenshot**: il benchmark di Fase 2 scriveva le sue 50.000 righe fittizie **nel database reale dell'utente**, e la lista "Benchmark" compariva fra le liste vere. Ora usa un file separato (`AppDatabase.named`).
+
+**Da completare**: verifica su **Android** (il criterio richiede entrambe le piattaforme), schermata dei preferiti, e guida EPG estesa oltre il now/next già presente nelle righe.
 
 ### Fase 7 — Backend web e capability detection
 

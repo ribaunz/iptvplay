@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:iptvplay/player/player_backend.dart';
-import 'package:iptvplay/player/test_streams.dart';
+import 'package:iptvplay/features/player/player_backend.dart';
+import 'package:iptvplay/features/player/test_streams.dart';
 
 void main() {
   group('PlayerState', () {
