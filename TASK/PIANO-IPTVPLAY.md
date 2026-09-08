@@ -6,8 +6,8 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | Fasi **0**, **2** e **3** completate; **Fase 1** parzialmente completata (spike player misurato su Windows e Android) |
-| **Prossimo passo** | **Fase 4 — client Xtream Codes**. La Fase 1 resta aperta: serve un Android fisico e un provider reale |
+| **Stato progetto** | Fasi **0**, **2**, **3** completate; **1** e **4** implementate ma non validate sul campo |
+| **Prossimo passo** | **Fase 5 — EPG XMLTV**. Restano aperte la **1** (serve un Android fisico) e la **4** (serve un provider reale) |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -764,11 +764,36 @@ Realizzato in `lib/features/playlists/data/`:
 - La natura del canale (live/vod/series) in M3U è **euristica** — dedotta da `/movie/`, `/series/` e dalla durata positiva. Con Xtream l'informazione è esplicita e va preferita (§6).
 - `drift` esporta un `isNotNull` che collide con il matcher omonimo di `flutter_test`: va nascosto nei test.
 
-### Fase 4 — Client Xtream Codes
+### Fase 4 — Client Xtream Codes 🟡 implementata, non validata sul campo (8 settembre 2026)
 
-Login, categorie, canali live/VOD/serie, `get_short_epg`, `resolveStreamUrl` con fallback `.m3u8` → `.ts`. Parsing tollerante.
+Realizzato in `lib/features/playlists/data/`:
 
-**Completa quando:** funziona contro **almeno due pannelli diversi**, e le action non confermate della §6 sono validate o corrette.
+- **`xtream_models.dart`** — modelli più la classe `Coerce`, che è il cuore della tolleranza: ogni lettura di campo passa da lì e **degrada invece di lanciare**.
+- **`xtream_client.dart`** — `XtreamCredentials` (con `tryParse` che accetta `host:porta`, URL completa o `player_api.php` con credenziali già dentro), login, categorie e stream live/VOD/serie, `get_series_info`, `get_short_epg`, costruzione di tutte le URL, e `resolveLiveUrl` con fallback `.m3u8` → `.ts`.
+
+**29 test** dedicati (85 in totale nel progetto), tutti su client HTTP simulato.
+
+#### Divergenze reali fra pannelli, coperte da test
+
+| Divergenza | Gestione |
+|---|---|
+| `stream_id`, `num`, `max_connections` a volte `String` a volte `int` | `Coerce.toIntOrNull` — **mai `as int`** |
+| `epg_channel_id` vuoto o letteralmente `"null"` | diventa `null`: il canale non ha EPG, non è un errore |
+| `tv_archive` come `1`, `"1"`, `true` | `Coerce.toBool` |
+| Lista vuota restituita come `{}` invece di `[]` | `Coerce.toList` restituisce lista vuota |
+| Voci non-oggetto dentro una lista | ignorate, il resto si importa |
+| `container_extension` mancante sui VOD | ripiego su `mp4` |
+| `episodes` come mappa stagione→lista **o** come lista di liste | entrambe le forme |
+| Titoli EPG in base64 oppure in chiaro, nello stesso pannello | `Coerce.maybeBase64`, che riconosce quale dei due è |
+| `exp_date` come epoch numerico o stringa | `Coerce.toDateTime`, che accetta anche `"yyyy-MM-dd HH:mm:ss"` |
+| Risposta HTML quando le credenziali sono errate | errore parlante, non un crash di `jsonDecode` |
+| `direct_source` valorizzato | **ha la precedenza** sulla costruzione manuale dell'URL |
+
+#### Fallback `.m3u8` → `.ts`
+
+`resolveLiveUrl` prova HLS e ripiega su MPEG-TS, che è il formato storicamente sempre presente. Il probe di default esegue una HEAD e, sui codici **405/501**, riprova con GET: diversi pannelli non implementano HEAD e restituirebbero un falso negativo. Il probe è iniettabile, quindi la logica è testabile senza rete.
+
+> ⚠️ **Questa fase NON è chiusa.** Il criterio richiede la validazione contro **almeno due pannelli reali**, e le action della §6 restano quelle non confermate dalla documentazione ufficiale (solo `get_live_streams` e `get_short_epg` lo sono). I test dimostrano che il client **regge le divergenze note**, non che lo schema sia quello giusto. Serve un provider vero.
 
 ### Fase 5 — EPG XMLTV
 
