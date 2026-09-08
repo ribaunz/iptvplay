@@ -6,8 +6,9 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | Fasi **0**, **2**, **3**, **5** completate; **1**, **4**, **6**, **7** implementate ma non del tutto validate |
-| **Prossimo passo** | **Fase 8 — packaging e CI/CD**. Aperte: **1** (Android fisico), **4** (provider reale), **6** (verifica Android), **7** (riproduzione web e proxy) |
+| **Stato progetto** | Fasi **0**, **2**, **3**, **5**, **8** completate; **1**, **4**, **6**, **7** implementate ma non del tutto validate |
+| **Repository** | [github.com/ribaunz/iptvplay](https://github.com/ribaunz/iptvplay) — pubblico, CI verde su Windows, Android, Web e iOS |
+| **Prossimo passo** | Chiudere le fasi aperte. Servono: un **Android fisico** (1, 6) e un **provider reale** (4, 7) |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -89,7 +90,9 @@ Versioni verificate l'8 settembre 2026. **Pinnare tutto**: questo progetto dipen
 | **`fvp`** | **0.38.1** | **2026-08-17** | **Backend nativo alternativo** (libmdk), si innesta su `video_player` |
 | `video_player` | 2.14.0 | 2026-08-11 | Interfaccia usata da `fvp` |
 
-> ⚠️ **Le release pub di media_kit sono ferme a dicembre 2025, mentre HEAD è del 30 agosto 2026.** Le fix recenti — incluso il bump di libmpv per iOS/macOS — esistono **solo su git**. Metti in conto una `dependency_override` su git ref fin dall'inizio:
+> ⚠️ **Le release pub di media_kit sono ferme a dicembre 2025, mentre HEAD è del 30 agosto 2026.** Le fix recenti — incluso il bump di libmpv per iOS/macOS — esistono **solo su git**.
+>
+> **Aggiornamento dalla Fase 8**: la CI compila iOS senza problemi con le versioni pub, quindi l'override **non è attualmente necessario** e la issue media-kit#1418 non ci colpisce. Resta il modo di applicarlo se servisse:
 >
 > ```yaml
 > dependency_overrides:
@@ -923,11 +926,56 @@ Nota onesta: su web **gli header custom non sono applicabili** — il browser no
 
 > ✅ **Wasm dry run superato** con l'intero stack — drift, media_kit, fvp e la JS interop. La compatibilità WasmGC di §13 è ora confermata sulle dipendenze reali, non solo sul progetto scaffoldato.
 
-### Fase 8 — Packaging e CI/CD
+### Fase 8 — Packaging e CI/CD ✅ COMPLETATA (8 settembre 2026)
 
-Build per Windows, Android e Web; workflow GitHub Actions.
+Repository pubblico: **[github.com/ribaunz/iptvplay](https://github.com/ribaunz/iptvplay)**, branch `main`.
+Workflow: `.github/workflows/build.yml`.
 
-**Completa quando:** un push produce artefatti scaricabili per tutti e tre i target senza intervento manuale.
+#### Primo run: verde su tutti e cinque i job
+
+| Job | Esito | Durata |
+|---|---|---:|
+| Analisi e test (ubuntu) | ✅ | 2m11s |
+| Android — APK per ABI + AAB | ✅ | 7m56s |
+| Web — `--wasm` | ✅ | 1m31s |
+| Windows | ✅ | 8m59s |
+| **iOS — `--no-codesign`** | ✅ | 6m05s |
+| | | **26m42s** |
+
+#### Il risultato che conta: iOS compila
+
+Il job iOS era marcato `continue-on-error` perché `media_kit_libs_ios_video` è fermo a settembre 2023 e la issue **media-kit#1418** segnala la build iOS rotta da Flutter 3.44. **Non è successo: compila.**
+
+Ha due conseguenze concrete:
+
+1. Il `dependency_override` su git ref di media_kit, che §2 dava per necessario, **non serve** — almeno non per iOS e non ora. Restano le versioni pub.
+2. iOS resta l'unica piattaforma su cui l'app non è mai stata *eseguita*. La CI dimostra che compila, non che funziona.
+
+> Su repository **pubblico** i runner GitHub sono gratuiti e senza moltiplicatori, macOS incluso. Su repository privato lo stesso run avrebbe consumato ~145 minuti fatturabili (macOS ×10, Windows ×2) su un free tier di 2.000 — cioè circa 13 run al mese. È la ragione per cui la scelta di visibilità è stata posta prima di creare il repo.
+
+#### Struttura del workflow
+
+Un **cancello rapido** in testa: `dart format --set-exit-if-changed`, `flutter analyze` e `flutter test` su Ubuntu, prima di occupare i runner Windows e macOS che costano di più. Gli altri quattro job dipendono da questo.
+
+Due controlli che meritano di esistere:
+
+- Il job **web** compila con `--wasm`, quindi fallisce se una dipendenza usa `dart:html` o `package:js`. È il presidio permanente sulla compatibilità WasmGC.
+- Sempre nel job web, si verifica che `sqlite3.wasm` e `drift_worker.js` finiscano nel build: un mismatch fra i due non dà errore di compilazione, dà **crash a runtime**. Meglio accorgersene qui.
+
+La versione Flutter è **pinnata a 3.47.2**: questo progetto dipende da package con release cadence irregolare, e una CI che segue `stable` si romperebbe da sola.
+
+#### Configurazioni di piattaforma applicate
+
+Erano previste da §8 ma non erano mai state scritte nel progetto — un bug latente, non un abbellimento:
+
+- **Android**: `INTERNET` (Flutter lo inietta solo in debug e profile: senza dichiararlo, l'app funziona in sviluppo e fallisce in release), `ACCESS_NETWORK_STATE`, `WAKE_LOCK`, e `network_security_config.xml` con cleartext abilitato — da API 28 gli stream `http://` falliscono **in silenzio** senza. Verificato con `aapt2` sull'APK costruito: i tre permessi ci sono e `targetSdkVersion` è **36**, come Play richiede dal 31 agosto 2026.
+- **iOS**: `NSAllowsArbitraryLoads` con la giustificazione da usare in review, e `UIBackgroundModes: audio`.
+
+#### Non fatto
+
+- **Firma**: né keystore Android né certificati iOS. L'AAB prodotto non è firmato e non è caricabile su Play.
+- **MSIX** per Windows: la CI produce la cartella `Release`, non un installer.
+- **Deploy automatico** del web: l'artefatto viene caricato, non pubblicato.
 
 ---
 
