@@ -90,8 +90,10 @@ class WebPlayerBackend implements PlayerBackend {
     video.setAttribute('playsinline', 'true');
     _video = video;
 
-    ui_web.platformViewRegistry
-        .registerViewFactory(_viewType, (int _) => video);
+    ui_web.platformViewRegistry.registerViewFactory(
+      _viewType,
+      (int _) => video,
+    );
 
     _poll = Timer.periodic(const Duration(milliseconds: 500), (_) => _sync());
     _log('backend web pronto');
@@ -102,16 +104,18 @@ class WebPlayerBackend implements PlayerBackend {
     if (v == null) return;
     final w = v.videoWidth;
     final h = v.videoHeight;
-    _emit(PlayerState(
-      playing: !v.paused && !v.ended,
-      buffering: v.readyState < 3, // HAVE_FUTURE_DATA
-      position: Duration(milliseconds: (v.currentTime * 1000).round()),
-      duration: v.duration.isFinite
-          ? Duration(milliseconds: (v.duration * 1000).round())
-          : Duration.zero,
-      videoSize: (w > 0 && h > 0) ? Size(w.toDouble(), h.toDouble()) : null,
-      error: _state.error,
-    ));
+    _emit(
+      PlayerState(
+        playing: !v.paused && !v.ended,
+        buffering: v.readyState < 3, // HAVE_FUTURE_DATA
+        position: Duration(milliseconds: (v.currentTime * 1000).round()),
+        duration: v.duration.isFinite
+            ? Duration(milliseconds: (v.duration * 1000).round())
+            : Duration.zero,
+        videoSize: (w > 0 && h > 0) ? Size(w.toDouble(), h.toDouble()) : null,
+        error: _state.error,
+      ),
+    );
   }
 
   @override
@@ -196,8 +200,9 @@ class WebPlayerBackend implements PlayerBackend {
       ..setProperty('isLive'.toJS, true.toJS)
       ..setProperty('url'.toJS, url.toString().toJS);
 
-    final player = lib.callMethodVarArgs<JSObject?>(
-        'createPlayer'.toJS, [config]);
+    final player = lib.callMethodVarArgs<JSObject?>('createPlayer'.toJS, [
+      config,
+    ]);
     if (player == null) throw StateError('mpegts.js: creazione fallita');
     _engine = player;
     _callMethod(player, 'attachMediaElement', [video]);

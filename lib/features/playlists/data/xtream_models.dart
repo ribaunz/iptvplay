@@ -22,8 +22,7 @@ class Coerce {
     return null;
   }
 
-  static int toInt(Object? v, {int fallback = 0}) =>
-      toIntOrNull(v) ?? fallback;
+  static int toInt(Object? v, {int fallback = 0}) => toIntOrNull(v) ?? fallback;
 
   static String? toStringOrNull(Object? v) {
     if (v == null) return null;
@@ -124,7 +123,7 @@ class XtreamAccount {
       username: Coerce.toStr(user['username']),
       status: status,
       // `auth` è 1 quando le credenziali sono valide; alcuni pannelli lo omettono.
-      active: Coerce.toBool(user['auth'] ) || status.toLowerCase() == 'active',
+      active: Coerce.toBool(user['auth']) || status.toLowerCase() == 'active',
       expiresAt: Coerce.toDateTime(user['exp_date']),
       maxConnections: Coerce.toIntOrNull(user['max_connections']),
       activeConnections: Coerce.toIntOrNull(user['active_cons']),
@@ -144,10 +143,10 @@ class XtreamCategory {
   final int? parentId;
 
   factory XtreamCategory.fromJson(Map<String, dynamic> json) => XtreamCategory(
-        id: Coerce.toStr(json['category_id']),
-        name: Coerce.toStr(json['category_name'], fallback: 'Senza nome'),
-        parentId: Coerce.toIntOrNull(json['parent_id']),
-      );
+    id: Coerce.toStr(json['category_id']),
+    name: Coerce.toStr(json['category_name'], fallback: 'Senza nome'),
+    parentId: Coerce.toIntOrNull(json['parent_id']),
+  );
 }
 
 enum XtreamStreamKind { live, vod, series }
@@ -194,7 +193,8 @@ class XtreamStream {
     Map<String, dynamic> json, {
     required XtreamStreamKind kind,
   }) {
-    final id = Coerce.toIntOrNull(json['stream_id']) ??
+    final id =
+        Coerce.toIntOrNull(json['stream_id']) ??
         Coerce.toIntOrNull(json['series_id']) ??
         Coerce.toInt(json['id']);
     return XtreamStream(
@@ -202,7 +202,8 @@ class XtreamStream {
       name: Coerce.toStr(json['name'], fallback: 'Senza nome'),
       kind: kind,
       categoryId: Coerce.toStringOrNull(json['category_id']),
-      icon: Coerce.toStringOrNull(json['stream_icon']) ??
+      icon:
+          Coerce.toStringOrNull(json['stream_icon']) ??
           Coerce.toStringOrNull(json['cover']),
       epgChannelId: Coerce.toStringOrNull(json['epg_channel_id']),
       containerExtension: Coerce.toStringOrNull(json['container_extension']),
@@ -257,12 +258,14 @@ class XtreamEpgEntry {
   final String? description;
 
   factory XtreamEpgEntry.fromJson(Map<String, dynamic> json) => XtreamEpgEntry(
-        // I titoli arrivano in base64 sulla maggior parte dei pannelli.
-        title: Coerce.maybeBase64(json['title']) ?? 'Senza titolo',
-        description: Coerce.maybeBase64(json['description']),
-        start: Coerce.toDateTime(json['start_timestamp']) ??
-            Coerce.toDateTime(json['start']),
-        end: Coerce.toDateTime(json['stop_timestamp']) ??
-            Coerce.toDateTime(json['end']),
-      );
+    // I titoli arrivano in base64 sulla maggior parte dei pannelli.
+    title: Coerce.maybeBase64(json['title']) ?? 'Senza titolo',
+    description: Coerce.maybeBase64(json['description']),
+    start:
+        Coerce.toDateTime(json['start_timestamp']) ??
+        Coerce.toDateTime(json['start']),
+    end:
+        Coerce.toDateTime(json['stop_timestamp']) ??
+        Coerce.toDateTime(json['end']),
+  );
 }

@@ -31,8 +31,7 @@ class TestStream {
 const testStreams = <TestStream>[
   TestStream(
     label: 'Apple bipbop advanced (fMP4 + sottotitoli)',
-    url:
-        'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8',
+    url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8',
     why:
         'Master HLS con rendition #EXT-X-MEDIA:TYPE=SUBTITLES: è la condizione '
         'esatta della issue media-kit#1441.',
@@ -43,16 +42,14 @@ const testStreams = <TestStream>[
   ),
   TestStream(
     label: 'Apple bipbop 16x9 (TS + sottotitoli)',
-    url:
-        'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+    url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
     why:
         'HLS su segmenti MPEG-TS, il formato più comune nei pannelli Xtream. '
         'Ha anch\'esso rendition sottotitoli, quindi è una seconda sonda #1441.',
   ),
   TestStream(
     label: 'Tagesschau (HLS live, non-seekable)',
-    url:
-        'https://tagesschau.akamaized.net/hls/live/2020115/tagesschau/tagesschau_1/master.m3u8',
+    url: 'https://tagesschau.akamaized.net/hls/live/2020115/tagesschau/tagesschau_1/master.m3u8',
     why:
         'Live 24/7 reale, senza #EXT-X-ENDLIST e quindi non-seekable: è la '
         'condizione della issue media-kit#1445.',
@@ -75,8 +72,7 @@ const testStreams = <TestStream>[
   ),
   TestStream(
     label: 'MP4 progressivo (720p)',
-    url:
-        'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
+    url: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
     why:
         'Controllo di base senza HLS. Equivale a un VOD Xtream '
         '(/movie/{u}/{p}/{id}.mp4).',

@@ -16,14 +16,16 @@ void main() {
     db = AppDatabase(NativeDatabase.memory());
     dao = ChannelsDao(db);
 
-    playlistId = await db.into(db.playlists).insert(
+    playlistId = await db
+        .into(db.playlists)
+        .insert(
           PlaylistsCompanion.insert(name: 'Test', type: PlaylistType.m3u),
         );
     groupIds = [
       for (final n in ['Italia', 'Sport'])
-        await db.into(db.groups).insert(
-              GroupsCompanion.insert(playlistId: playlistId, name: n),
-            ),
+        await db
+            .into(db.groups)
+            .insert(GroupsCompanion.insert(playlistId: playlistId, name: n)),
     ];
   });
 
@@ -70,12 +72,15 @@ void main() {
       expect(r.map((c) => c.name), contains('Éire TV'));
     });
 
-    test('una query di soli simboli non genera errori di sintassi FTS5', () async {
-      // Senza sanificazione, "*" o '"' fanno fallire il MATCH.
-      for (final q in ['', '   ', '*', '"', '-', ':::', '""*']) {
-        expect(await db.searchChannels(q), isEmpty, reason: 'query: "$q"');
-      }
-    });
+    test(
+      'una query di soli simboli non genera errori di sintassi FTS5',
+      () async {
+        // Senza sanificazione, "*" o '"' fanno fallire il MATCH.
+        for (final q in ['', '   ', '*', '"', '-', ':::', '""*']) {
+          expect(await db.searchChannels(q), isEmpty, reason: 'query: "$q"');
+        }
+      },
+    );
 
     test('i caratteri speciali nella query non rompono la ricerca', () async {
       final r = await db.searchChannels('rai "uno"');
@@ -99,8 +104,9 @@ void main() {
 
     test('il trigger di UPDATE riallinea l\'indice', () async {
       final id = await addIsolated();
-      await (db.update(db.channels)..where((c) => c.id.equals(id)))
-          .write(const ChannelsCompanion(name: Value('Lugano Notizie')));
+      await (db.update(db.channels)..where((c) => c.id.equals(id))).write(
+        const ChannelsCompanion(name: Value('Lugano Notizie')),
+      );
 
       expect(await db.searchChannels('zurigo'), isEmpty);
       expect((await db.searchChannels('lugano')).single.name, 'Lugano Notizie');
@@ -113,7 +119,9 @@ void main() {
     });
 
     test('filtra per playlist', () async {
-      final other = await db.into(db.playlists).insert(
+      final other = await db
+          .into(db.playlists)
+          .insert(
             PlaylistsCompanion.insert(name: 'Altra', type: PlaylistType.m3u),
           );
       expect(await db.searchChannels('rai', playlistId: other), isEmpty);
@@ -150,7 +158,11 @@ void main() {
         cursor = page.last.sortOrder;
       }
       expect(seen.length, 250);
-      expect(seen.toSet().length, 250, reason: 'nessun duplicato tra le pagine');
+      expect(
+        seen.toSet().length,
+        250,
+        reason: 'nessun duplicato tra le pagine',
+      );
     });
 
     test('filtra per gruppo', () async {
@@ -169,9 +181,9 @@ void main() {
       await addChannels([for (var i = 0; i < 10; i++) ('C$i', null)]);
       await dao.refreshCounts(playlistId);
 
-      final pl = await (db.select(db.playlists)
-            ..where((p) => p.id.equals(playlistId)))
-          .getSingle();
+      final pl = await (db.select(
+        db.playlists,
+      )..where((p) => p.id.equals(playlistId))).getSingle();
       expect(pl.channelCount, 10);
 
       final gs = await dao.groupsOf(playlistId);
@@ -179,20 +191,25 @@ void main() {
     });
 
     test('purgeOldProgrammes rimuove solo i programmi scaduti', () async {
-      final epgId = await db.into(db.epgChannels).insert(
+      final epgId = await db
+          .into(db.epgChannels)
+          .insert(
             EpgChannelsCompanion.insert(
               playlistId: playlistId,
               xmltvId: 'rai1.it',
             ),
           );
       final now = DateTime.now().toUtc();
-      Future<void> prog(String title, Duration offset) =>
-          db.into(db.programmes).insert(ProgrammesCompanion.insert(
-                epgChannelId: epgId,
-                startUtc: now.add(offset),
-                stopUtc: now.add(offset + const Duration(hours: 1)),
-                title: title,
-              ));
+      Future<void> prog(String title, Duration offset) => db
+          .into(db.programmes)
+          .insert(
+            ProgrammesCompanion.insert(
+              epgChannelId: epgId,
+              startUtc: now.add(offset),
+              stopUtc: now.add(offset + const Duration(hours: 1)),
+              title: title,
+            ),
+          );
 
       await prog('vecchio', const Duration(days: -5));
       await prog('ieri', const Duration(hours: -3));
@@ -200,7 +217,11 @@ void main() {
       await prog('domani', const Duration(days: 1));
 
       final removed = await db.purgeOldProgrammes();
-      expect(removed, 1, reason: 'solo "vecchio" è oltre la finestra di 1 giorno');
+      expect(
+        removed,
+        1,
+        reason: 'solo "vecchio" è oltre la finestra di 1 giorno',
+      );
 
       final left = await db.select(db.programmes).get();
       expect(left.map((p) => p.title), isNot(contains('vecchio')));
@@ -211,7 +232,9 @@ void main() {
   group('vincoli di integrità', () {
     test('un canale non può riferire una playlist inesistente', () async {
       expect(
-        () => db.into(db.channels).insert(
+        () => db
+            .into(db.channels)
+            .insert(
               ChannelsCompanion.insert(
                 playlistId: 999999,
                 name: 'orfano',
@@ -224,7 +247,9 @@ void main() {
 
     test('eliminare una playlist elimina i suoi canali', () async {
       await addChannels([('A', null), ('B', null)]);
-      await (db.delete(db.playlists)..where((p) => p.id.equals(playlistId))).go();
+      await (db.delete(
+        db.playlists,
+      )..where((p) => p.id.equals(playlistId))).go();
       expect(await db.select(db.channels).get(), isEmpty);
     });
   });

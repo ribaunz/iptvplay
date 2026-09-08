@@ -48,7 +48,8 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    final remaining = _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    final remaining =
+        _scroll.position.maxScrollExtent - _scroll.position.pixels;
     if (remaining < 600) _loadMore();
   }
 
@@ -98,10 +99,13 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   Future<void> _toggleFavorite(Channel c, bool isFav) async {
     final db = ref.read(databaseProvider);
     if (isFav) {
-      await (db.delete(db.favorites)..where((f) => f.channelId.equals(c.id)))
-          .go();
+      await (db.delete(
+        db.favorites,
+      )..where((f) => f.channelId.equals(c.id))).go();
     } else {
-      await db.into(db.favorites).insert(
+      await db
+          .into(db.favorites)
+          .insert(
             FavoritesCompanion.insert(
               channelId: Value(c.id),
               addedAt: DateTime.now().toUtc(),
@@ -112,9 +116,12 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   }
 
   void _play(Channel c) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => PlayerScreen(channel: c, now: _epg[c.tvgId]?.firstOrNull),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            PlayerScreen(channel: c, now: _epg[c.tvgId]?.firstOrNull),
+      ),
+    );
   }
 
   @override
@@ -182,12 +189,14 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
       padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.md),
       child: TextField(
         controller: _searchCtrl,
-        onChanged: (v) =>
-            ref.read(searchQueryProvider.notifier).set(v),
+        onChanged: (v) => ref.read(searchQueryProvider.notifier).set(v),
         decoration: InputDecoration(
           hintText: 'Cerca fra i canali',
-          prefixIcon: const Icon(Icons.search_rounded,
-              size: 20, color: AppColors.muted),
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            size: 20,
+            color: AppColors.muted,
+          ),
           suffixIcon: _searchCtrl.text.isEmpty
               ? null
               : IconButton(
@@ -256,7 +265,9 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: Gap.md, vertical: Gap.md),
+            horizontal: Gap.md,
+            vertical: Gap.md,
+          ),
           child: Row(
             children: [
               // Il filetto ambra segnala la selezione senza aggiungere rumore.

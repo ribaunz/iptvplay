@@ -67,7 +67,9 @@ class AutoProbe {
 
     for (final backend in backends) {
       if (!backend.isSupportedOnThisPlatform) {
-        _line('\n--- ${backend.name}: non supportato su questa piattaforma, salto');
+        _line(
+          '\n--- ${backend.name}: non supportato su questa piattaforma, salto',
+        );
         continue;
       }
 
@@ -177,8 +179,10 @@ class AutoProbe {
       _line('$backend: $ok/${rs.length} stream riprodotti correttamente');
       for (final r in rs.where((r) => r.verdict.isFailure)) {
         _line('   ✗ ${r.verdict.label}  ${r.stream}');
-        _line('     video visto: ${r.sawVideo} | position max: '
-            '${r.maxPosition.inSeconds}s | EOF: ${r.eof} | cannot-seek: ${r.cannotSeek}');
+        _line(
+          '     video visto: ${r.sawVideo} | position max: '
+          '${r.maxPosition.inSeconds}s | EOF: ${r.eof} | cannot-seek: ${r.cannotSeek}',
+        );
       }
     });
 

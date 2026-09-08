@@ -45,9 +45,8 @@ class PlaylistsScreen extends ConsumerWidget {
   }
 
   void _add(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AddPlaylistScreen()),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const AddPlaylistScreen()));
   }
 
   /// Primo avvio: una schermata vuota è un invito ad agire, non un vicolo cieco.
@@ -61,8 +60,10 @@ class PlaylistsScreen extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Aggiungi la tua prima lista',
-                  style: Theme.of(context).textTheme.headlineMedium),
+              Text(
+                'Aggiungi la tua prima lista',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
               const SizedBox(height: Gap.md),
               Text(
                 'IPTVPlay riproduce le liste che fornisci tu. Puoi incollare '
@@ -101,14 +102,16 @@ class PlaylistsScreen extends ConsumerWidget {
           confirmDismiss: (_) => _confirmDelete(context, p),
           onDismissed: (_) async {
             final db = ref.read(databaseProvider);
-            await (db.delete(db.playlists)..where((t) => t.id.equals(p.id)))
-                .go();
+            await (db.delete(
+              db.playlists,
+            )..where((t) => t.id.equals(p.id))).go();
           },
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(
-                horizontal: Gap.lg, vertical: Gap.sm),
-            title: Text(p.name,
-                style: Theme.of(context).textTheme.titleMedium),
+              horizontal: Gap.lg,
+              vertical: Gap.sm,
+            ),
+            title: Text(p.name, style: Theme.of(context).textTheme.titleMedium),
             subtitle: Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(
@@ -121,9 +124,11 @@ class PlaylistsScreen extends ConsumerWidget {
               ref.read(selectedPlaylistProvider.notifier).set(p.id);
               ref.read(selectedGroupProvider.notifier).set(null);
               ref.read(searchQueryProvider.notifier).set('');
-              Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => BrowseScreen(playlistId: p.id),
-              ));
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => BrowseScreen(playlistId: p.id),
+                ),
+              );
             },
           ),
         );

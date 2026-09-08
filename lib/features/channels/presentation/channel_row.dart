@@ -103,27 +103,36 @@ class ChannelRow extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,
       child: url == null
-          ? Text(initial,
+          ? Text(
+              initial,
               style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.muted))
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.muted,
+              ),
+            )
           : Image.network(
               url,
               fit: BoxFit.contain,
               // I loghi dei provider sono spesso rotti: l'iniziale è un
               // ripiego migliore di un riquadro vuoto.
-              errorBuilder: (_, _, _) => Text(initial,
-                  style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.muted)),
+              errorBuilder: (_, _, _) => Text(
+                initial,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.muted,
+                ),
+              ),
             ),
     );
   }
 
   Widget _titleAndSchedule(
-      BuildContext context, Programme? now, double? progress) {
+    BuildContext context,
+    Programme? now,
+    double? progress,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -193,7 +202,9 @@ class ChannelRow extends StatelessWidget {
         size: 20,
         color: data.isFavorite ? AppColors.tally : AppColors.muted,
       ),
-      tooltip: data.isFavorite ? 'Togli dai preferiti' : 'Aggiungi ai preferiti',
+      tooltip: data.isFavorite
+          ? 'Togli dai preferiti'
+          : 'Aggiungi ai preferiti',
     );
   }
 

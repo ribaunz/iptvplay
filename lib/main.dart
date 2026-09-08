@@ -63,9 +63,7 @@ class IptvPlayApp extends StatelessWidget {
       title: 'IPTVPlay',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: kAutoProbe || kBench
-          ? const _DiagnosticsPage()
-          : const _Boot(),
+      home: kAutoProbe || kBench ? const _DiagnosticsPage() : const _Boot(),
     );
   }
 }
@@ -157,7 +155,9 @@ class _DiagnosticsPageState extends State<_DiagnosticsPage> {
   Widget build(BuildContext context) {
     if (kBench) {
       return const Scaffold(
-        body: Center(child: Text('Benchmark storage in corso — vedi la console.')),
+        body: Center(
+          child: Text('Benchmark storage in corso — vedi la console.'),
+        ),
       );
     }
     return Scaffold(

@@ -16,7 +16,9 @@ void main() {
   setUp(() async {
     db = AppDatabase(NativeDatabase.memory());
     dao = ChannelsDao(db);
-    playlistId = await db.into(db.playlists).insert(
+    playlistId = await db
+        .into(db.playlists)
+        .insert(
           PlaylistsCompanion.insert(name: 'Test', type: PlaylistType.m3u),
         );
   });
@@ -54,9 +56,9 @@ http://host/live/u/p/3.ts
     expect(groups.firstWhere((g) => g.name == 'Italia').channelCount, 2);
     expect(groups.firstWhere((g) => g.name == 'Sport').channelCount, 1);
 
-    final pl = await (db.select(db.playlists)
-          ..where((p) => p.id.equals(playlistId)))
-        .getSingle();
+    final pl = await (db.select(
+      db.playlists,
+    )..where((p) => p.id.equals(playlistId))).getSingle();
     expect(pl.channelCount, 3);
     expect(pl.epgUrl, 'http://host/epg.xml.gz');
     expect(pl.lastSyncAt, isNotNull);
@@ -87,7 +89,7 @@ http://host/movie/u/p/2.mp4
 http://host/series/u/p/3.mkv
 ''');
     final kinds = {
-      for (final c in await db.select(db.channels).get()) c.name: c.kind
+      for (final c in await db.select(db.channels).get()) c.name: c.kind,
     };
     expect(kinds['Live'], ChannelKind.live);
     expect(kinds['Film'], ChannelKind.vod);
@@ -144,7 +146,9 @@ http://orfano/2.ts
   test('importa 50.000 canali senza materializzare la lista', () async {
     final buf = StringBuffer('#EXTM3U\n');
     for (var i = 0; i < 50000; i++) {
-      buf.writeln('#EXTINF:-1 tvg-id="c$i.it" group-title="G${i % 120}",Canale $i');
+      buf.writeln(
+        '#EXTINF:-1 tvg-id="c$i.it" group-title="G${i % 120}",Canale $i',
+      );
       buf.writeln('http://host/live/u/p/$i.ts');
     }
 
@@ -166,7 +170,10 @@ http://orfano/2.ts
     expect(page.first.name, 'Canale 0');
 
     // E la ricerca full-text deve trovarli.
-    final found = await db.searchChannels('canale 49999', playlistId: playlistId);
+    final found = await db.searchChannels(
+      'canale 49999',
+      playlistId: playlistId,
+    );
     expect(found.map((c) => c.name), contains('Canale 49999'));
   }, timeout: const Timeout(Duration(minutes: 2)));
 }

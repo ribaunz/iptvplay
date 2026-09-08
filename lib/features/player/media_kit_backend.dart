@@ -132,10 +132,7 @@ class MediaKitBackend implements PlayerBackend {
       _log('headers: $headers');
     }
 
-    await player.open(
-      Media(url.toString(), httpHeaders: headers),
-      play: true,
-    );
+    await player.open(Media(url.toString(), httpHeaders: headers), play: true);
   }
 
   @override

@@ -77,9 +77,13 @@ class StorageBenchmark {
       _l('journal_mode: non leggibile ($e)');
     }
     if (kIsWeb) {
-      _l('tier persistenza web: ${AppDatabase.webStorageTier ?? "sconosciuto"}');
+      _l(
+        'tier persistenza web: ${AppDatabase.webStorageTier ?? "sconosciuto"}',
+      );
       final missing = AppDatabase.webMissingFeatures;
-      _l('funzionalità mancanti: ${missing == null || missing.isEmpty ? "nessuna" : missing}');
+      _l(
+        'funzionalità mancanti: ${missing == null || missing.isEmpty ? "nessuna" : missing}',
+      );
     }
   }
 
@@ -89,20 +93,22 @@ class StorageBenchmark {
   /// dopo un DELETE, quindi alla seconda esecuzione i gruppi partono da un id
   /// più alto e usare 1..N produce `FOREIGN KEY constraint failed`.
   Future<(int, List<int>)> _seedPlaylistAndGroups(AppDatabase db) async {
-    final playlistId = await db.into(db.playlists).insert(
-          PlaylistsCompanion.insert(
-            name: 'Benchmark',
-            type: PlaylistType.m3u,
-          ),
+    final playlistId = await db
+        .into(db.playlists)
+        .insert(
+          PlaylistsCompanion.insert(name: 'Benchmark', type: PlaylistType.m3u),
         );
 
     final groupIds = <int>[];
     for (var i = 0; i < groupCount; i++) {
       groupIds.add(
-        await db.into(db.groups).insert(
+        await db
+            .into(db.groups)
+            .insert(
               GroupsCompanion.insert(
                 playlistId: playlistId,
-                name: '${_groupNames[i % _groupNames.length]} '
+                name:
+                    '${_groupNames[i % _groupNames.length]} '
                     '${i ~/ _groupNames.length}',
                 sortOrder: Value(i),
               ),
@@ -112,7 +118,10 @@ class StorageBenchmark {
     return (playlistId, groupIds);
   }
 
-  List<ChannelsCompanion> _generateChannels(int playlistId, List<int> groupIds) {
+  List<ChannelsCompanion> _generateChannels(
+    int playlistId,
+    List<int> groupIds,
+  ) {
     // Seed fisso: due esecuzioni devono essere confrontabili.
     final rnd = Random(42);
     return [
@@ -120,7 +129,8 @@ class StorageBenchmark {
         ChannelsCompanion.insert(
           playlistId: playlistId,
           groupId: Value(groupIds[i % groupIds.length]),
-          name: '${_words[rnd.nextInt(_words.length)]} '
+          name:
+              '${_words[rnd.nextInt(_words.length)]} '
               '${_words[rnd.nextInt(_words.length)]} $i',
           url: 'http://example.invalid/live/u/p/$i.ts',
           tvgId: Value('chan$i.example'),
@@ -130,13 +140,18 @@ class StorageBenchmark {
     ];
   }
 
-  Future<void> _measureInsert(ChannelsDao dao, List<ChannelsCompanion> rows) async {
+  Future<void> _measureInsert(
+    ChannelsDao dao,
+    List<ChannelsCompanion> rows,
+  ) async {
     final sw = Stopwatch()..start();
     await dao.insertChannelsBatched(rows, chunkSize: 2000);
     sw.stop();
     final perSec = (rows.length / (sw.elapsedMilliseconds / 1000)).round();
-    _l('\ninsert ${rows.length} righe (batch da 2000): '
-        '${sw.elapsedMilliseconds} ms  (~$perSec righe/s)');
+    _l(
+      '\ninsert ${rows.length} righe (batch da 2000): '
+      '${sw.elapsedMilliseconds} ms  (~$perSec righe/s)',
+    );
     _l('  nota: include il mantenimento dell\'indice FTS5 via trigger.');
   }
 
@@ -163,19 +178,25 @@ class StorageBenchmark {
       limit: 50,
     );
     sw.stop();
-    _l('paginazione keyset, pagina profonda (dopo $deepAfter): '
-        '${sw.elapsedMilliseconds} ms, ${page.length} righe');
+    _l(
+      'paginazione keyset, pagina profonda (dopo $deepAfter): '
+      '${sw.elapsedMilliseconds} ms, ${page.length} righe',
+    );
 
     // Confronto diretto con OFFSET, per giustificare la scelta.
     sw = Stopwatch()..start();
-    await dao.customSelect(
-      'SELECT * FROM channels WHERE playlist_id = ? '
-      'ORDER BY sort_order LIMIT 50 OFFSET ?',
-      variables: [Variable<int>(playlistId), Variable<int>(deepAfter)],
-    ).get();
+    await dao
+        .customSelect(
+          'SELECT * FROM channels WHERE playlist_id = ? '
+          'ORDER BY sort_order LIMIT 50 OFFSET ?',
+          variables: [Variable<int>(playlistId), Variable<int>(deepAfter)],
+        )
+        .get();
     sw.stop();
-    _l('stessa pagina con OFFSET $deepAfter: ${sw.elapsedMilliseconds} ms '
-        '(motivo per cui si usa il keyset)');
+    _l(
+      'stessa pagina con OFFSET $deepAfter: ${sw.elapsedMilliseconds} ms '
+      '(motivo per cui si usa il keyset)',
+    );
   }
 
   /// Termini scelti per coprire i tre casi che si comportano diversamente:
@@ -191,13 +212,18 @@ class StorageBenchmark {
     _l('');
     for (final e in _queries.entries) {
       final sw = Stopwatch()..start();
-      final res =
-          await db.searchChannels(e.key, playlistId: playlistId, limit: 50);
+      final res = await db.searchChannels(
+        e.key,
+        playlistId: playlistId,
+        limit: 50,
+      );
       sw.stop();
       final flag = sw.elapsedMilliseconds <= 100 ? 'OK' : 'LENTO';
-      _l('FTS5   "${e.key}": ${res.length.toString().padLeft(3)} risultati in '
-          '${sw.elapsedMilliseconds.toString().padLeft(4)} ms  [$flag]  '
-          '(${e.value})');
+      _l(
+        'FTS5   "${e.key}": ${res.length.toString().padLeft(3)} risultati in '
+        '${sw.elapsedMilliseconds.toString().padLeft(4)} ms  [$flag]  '
+        '(${e.value})',
+      );
     }
   }
 
@@ -210,18 +236,22 @@ class StorageBenchmark {
     _l('');
     for (final e in _queries.entries) {
       final sw = Stopwatch()..start();
-      final rows = await db.customSelect(
-        'SELECT * FROM channels WHERE playlist_id = ? '
-        "AND (name LIKE ? OR tvg_name LIKE ?) LIMIT 50",
-        variables: [
-          Variable<int>(playlistId),
-          Variable<String>('%${e.key}%'),
-          Variable<String>('%${e.key}%'),
-        ],
-      ).get();
+      final rows = await db
+          .customSelect(
+            'SELECT * FROM channels WHERE playlist_id = ? '
+            "AND (name LIKE ? OR tvg_name LIKE ?) LIMIT 50",
+            variables: [
+              Variable<int>(playlistId),
+              Variable<String>('%${e.key}%'),
+              Variable<String>('%${e.key}%'),
+            ],
+          )
+          .get();
       sw.stop();
-      _l('LIKE   "${e.key}": ${rows.length.toString().padLeft(3)} risultati in '
-          '${sw.elapsedMilliseconds.toString().padLeft(4)} ms');
+      _l(
+        'LIKE   "${e.key}": ${rows.length.toString().padLeft(3)} risultati in '
+        '${sw.elapsedMilliseconds.toString().padLeft(4)} ms',
+      );
     }
   }
 
@@ -229,17 +259,48 @@ class StorageBenchmark {
     final sw = Stopwatch()..start();
     await dao.refreshCounts(playlistId);
     sw.stop();
-    _l('\nrefreshCounts (denormalizzazione conteggi): ${sw.elapsedMilliseconds} ms');
+    _l(
+      '\nrefreshCounts (denormalizzazione conteggi): ${sw.elapsedMilliseconds} ms',
+    );
   }
 
   static const _groupNames = [
-    'Italia', 'Sport', 'Cinema', 'Bambini', 'News', 'Musica',
-    'Documentari', 'Serie TV', 'Regionali', 'Internazionali',
+    'Italia',
+    'Sport',
+    'Cinema',
+    'Bambini',
+    'News',
+    'Musica',
+    'Documentari',
+    'Serie TV',
+    'Regionali',
+    'Internazionali',
   ];
 
   static const _words = [
-    'Rai', 'Mediaset', 'Sky', 'Sport', 'Calcio', 'Cinema', 'News', 'Uno',
-    'Due', 'Tre', 'HD', 'FHD', 'Premium', 'Kids', 'Music', 'Doc', 'Live',
-    'Canale', 'Rete', 'Italia', 'Serie', 'Motori', 'Tennis', 'Basket',
+    'Rai',
+    'Mediaset',
+    'Sky',
+    'Sport',
+    'Calcio',
+    'Cinema',
+    'News',
+    'Uno',
+    'Due',
+    'Tre',
+    'HD',
+    'FHD',
+    'Premium',
+    'Kids',
+    'Music',
+    'Doc',
+    'Live',
+    'Canale',
+    'Rete',
+    'Italia',
+    'Serie',
+    'Motori',
+    'Tennis',
+    'Basket',
   ];
 }

@@ -1,0 +1,143 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# La versione è pinnata di proposito: questo progetto dipende da package con
+# release cadence irregolare (media_kit su tutti), e una CI che segue "stable"
+# rompe senza che nessuno abbia toccato il codice.
+env:
+  FLUTTER_VERSION: 3.47.2
+
+jobs:
+  # Cancello rapido: se analisi o test falliscono non ha senso occupare i
+  # runner Windows e macOS, che costano di più.
+  verify:
+    name: Analisi e test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: Android
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      # --split-per-abi: le librerie native di libmpv pesano ~5,5 MB per arm64
+      # ma ~11 MB in un APK universale.
+      - name: APK per ABI
+        run: flutter build apk --release --split-per-abi
+
+      # Play accetta solo AAB. Non è firmato qui: la firma richiede il keystore,
+      # che non sta nel repository.
+      - name: App bundle
+        run: flutter build appbundle --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            build/app/outputs/flutter-apk/*.apk
+            build/app/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+  web:
+    name: Web
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      # --wasm compila sia WasmGC sia JavaScript e sceglie a runtime. Se una
+      # dipendenza usasse dart:html o package:js questo passo fallirebbe: è il
+      # controllo che tiene sotto osservazione la compatibilità WasmGC.
+      - name: Build web
+        run: flutter build web --release --wasm
+
+      # sqlite3.wasm e drift_worker.js devono provenire dalla stessa release di
+      # drift: un mismatch produce crash oscuri a runtime, non un errore di
+      # build. Meglio accorgersene qui.
+      - name: Verifica asset drift
+        run: |
+          test -f build/web/sqlite3.wasm || { echo "manca sqlite3.wasm"; exit 1; }
+          test -f build/web/drift_worker.js || { echo "manca drift_worker.js"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: build/web
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: build/windows/x64/runner/Release
+          if-no-files-found: error
+
+  ios:
+    name: iOS
+    needs: verify
+    runs-on: macos-latest
+    # Verifica di compilazione senza firma: certificati e profili non stanno
+    # nel repository. Per l'App Store serve Xcode 26+ (requisito dal 28 aprile
+    # 2026) e la firma vera.
+    #
+    # Questo job può fallire: media_kit_libs_ios_video è fermo a settembre 2023
+    # e la issue media-kit#1418 segnala la build iOS rotta da Flutter 3.44.
+    # È esattamente il motivo per cui vale la pena tenerlo in CI — è l'unico
+    # modo per accorgersene senza un Mac.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign

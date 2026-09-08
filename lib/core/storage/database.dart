@@ -25,7 +25,7 @@ part 'database.g.dart';
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
-      : super(executor ?? _defaultExecutor());
+    : super(executor ?? _defaultExecutor());
 
   /// Database separato, con un proprio file.
   ///
@@ -54,8 +54,9 @@ class AppDatabase extends _$AppDatabase {
         driftWorker: Uri.parse('drift_worker.js'),
         onResult: (result) {
           webStorageTier = result.chosenImplementation.name;
-          webMissingFeatures =
-              result.missingFeatures.map((f) => f.name).join(', ');
+          webMissingFeatures = result.missingFeatures
+              .map((f) => f.name)
+              .join(', ');
         },
       ),
     );
@@ -66,22 +67,22 @@ class AppDatabase extends _$AppDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) async {
-          await m.createAll();
-          await _createFts(this);
-        },
-        beforeOpen: (details) async {
-          await customStatement('PRAGMA foreign_keys = ON');
-          // WAL riduce il costo delle scritture in blocco, ma **non esiste su
-          // web**: lì sqlite3.wasm gira su IndexedDB/OPFS e la PRAGMA viene
-          // ignorata o fallisce. Senza questa guardia il default resta
-          // journal_mode=delete anche su desktop.
-          if (!kIsWeb) {
-            await customStatement('PRAGMA journal_mode = WAL');
-            await customStatement('PRAGMA synchronous = NORMAL');
-          }
-        },
-      );
+    onCreate: (m) async {
+      await m.createAll();
+      await _createFts(this);
+    },
+    beforeOpen: (details) async {
+      await customStatement('PRAGMA foreign_keys = ON');
+      // WAL riduce il costo delle scritture in blocco, ma **non esiste su
+      // web**: lì sqlite3.wasm gira su IndexedDB/OPFS e la PRAGMA viene
+      // ignorata o fallisce. Senza questa guardia il default resta
+      // journal_mode=delete anche su desktop.
+      if (!kIsWeb) {
+        await customStatement('PRAGMA journal_mode = WAL');
+        await customStatement('PRAGMA synchronous = NORMAL');
+      }
+    },
+  );
 
   /// Ricerca full-text sui canali.
   ///
@@ -177,8 +178,9 @@ class AppDatabase extends _$AppDatabase {
   /// Da chiamare a ogni sync: senza, il database cresce indefinitamente.
   Future<int> purgeOldProgrammes({Duration keep = const Duration(days: 1)}) {
     final cutoff = DateTime.now().toUtc().subtract(keep);
-    return (delete(programmes)..where((p) => p.stopUtc.isSmallerThanValue(cutoff)))
-        .go();
+    return (delete(
+      programmes,
+    )..where((p) => p.stopUtc.isSmallerThanValue(cutoff))).go();
   }
 }
 

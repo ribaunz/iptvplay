@@ -158,8 +158,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Il canale non parte',
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Il canale non parte',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: Gap.sm),
             Text(
               'Il provider ha rifiutato la connessione o il formato non è '
@@ -167,11 +169,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: Gap.md),
-            Text(_failure!,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.muted, height: 1.4)),
+            Text(
+              _failure!,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.muted,
+                height: 1.4,
+              ),
+            ),
             const SizedBox(height: Gap.lg),
             Row(
               children: [
@@ -264,8 +271,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             widget.channel.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style:
-                                Theme.of(context).textTheme.titleLarge,
+                            style: Theme.of(context).textTheme.titleLarge,
                           ),
                         ),
                       ],
@@ -315,9 +321,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 iconSize: 34,
                 onPressed: () =>
                     _state.playing ? _backend?.pause() : _backend?.play(),
-                icon: Icon(_state.playing
-                    ? Icons.pause_rounded
-                    : Icons.play_arrow_rounded),
+                icon: Icon(
+                  _state.playing
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                ),
                 tooltip: _state.playing ? 'Metti in pausa' : 'Riprendi',
               ),
               const SizedBox(width: Gap.md),

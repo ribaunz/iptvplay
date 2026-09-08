@@ -4,11 +4,7 @@ import 'package:xml/xml_events.dart';
 
 /// Un canale dichiarato nell'XMLTV.
 class XmltvChannel {
-  const XmltvChannel({
-    required this.id,
-    this.displayName,
-    this.iconUrl,
-  });
+  const XmltvChannel({required this.id, this.displayName, this.iconUrl});
 
   final String id;
   final String? displayName;
@@ -225,7 +221,9 @@ class XmltvParser {
 
     final utc = DateTime.utc(y, mo, d, h, mi, sec ?? 0);
 
-    final offset = s.length > 14 ? s.substring(14).trim().replaceAll(':', '') : '';
+    final offset = s.length > 14
+        ? s.substring(14).trim().replaceAll(':', '')
+        : '';
     if (offset.isEmpty) return utc;
 
     final sign = offset.startsWith('-') ? -1 : 1;
@@ -248,11 +246,8 @@ class _ChannelBuilder {
   String? displayName;
   String? iconUrl;
 
-  XmltvChannel build() => XmltvChannel(
-        id: id,
-        displayName: displayName,
-        iconUrl: iconUrl,
-      );
+  XmltvChannel build() =>
+      XmltvChannel(id: id, displayName: displayName, iconUrl: iconUrl);
 }
 
 class _ProgrammeBuilder {
@@ -270,11 +265,11 @@ class _ProgrammeBuilder {
   String? category;
 
   XmltvProgramme build() => XmltvProgramme(
-        channelId: channelId,
-        start: start!,
-        stop: stop!,
-        title: title!,
-        description: description,
-        category: category,
-      );
+    channelId: channelId,
+    start: start!,
+    stop: stop!,
+    title: title!,
+    description: description,
+    category: category,
+  );
 }

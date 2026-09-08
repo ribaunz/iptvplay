@@ -59,7 +59,9 @@ http://host:8080/live/u/p/1.ts
 #EXTINF:-1,A
 http://x/1.ts
 ''');
-      expect(r.header!.epgUrls, ['http://host/xmltv.php?username=u&password=p']);
+      expect(r.header!.epgUrls, [
+        'http://host/xmltv.php?username=u&password=p',
+      ]);
     });
 
     test('accetta x-tvg-url e più URL separati da virgola', () async {
@@ -278,7 +280,10 @@ http://x/2.ts
     test('file troncato a metà voce', () async {
       final r = await parseString('#EXTM3U\n#EXTINF:-1,A\n');
       expect(r.channels, isEmpty);
-      expect(r.warnings.any((w) => w.message.contains('file terminato')), isTrue);
+      expect(
+        r.warnings.any((w) => w.message.contains('file terminato')),
+        isTrue,
+      );
     });
 
     test('intestazione mancante viene segnalata ma non blocca', () async {
@@ -291,7 +296,8 @@ http://x/2.ts
       // allowMalformed: una sequenza UTF-8 rotta non deve abortire tutto.
       final bytes = <int>[
         ...utf8.encode('#EXTM3U\n#EXTINF:-1,Ca'),
-        0xFF, 0xFE,
+        0xFF,
+        0xFE,
         ...utf8.encode('nale\nhttp://x/1.ts\n'),
       ];
       final channels = <ParsedChannel>[];
@@ -307,7 +313,9 @@ http://x/2.ts
     test('gestisce 50.000 voci restando in streaming', () async {
       final buf = StringBuffer('#EXTM3U\n');
       for (var i = 0; i < 50000; i++) {
-        buf.writeln('#EXTINF:-1 tvg-id="c$i.it" group-title="G${i % 100}",Canale $i');
+        buf.writeln(
+          '#EXTINF:-1 tvg-id="c$i.it" group-title="G${i % 100}",Canale $i',
+        );
         buf.writeln('http://host/live/u/p/$i.ts');
       }
       final sw = Stopwatch()..start();

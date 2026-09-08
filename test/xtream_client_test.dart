@@ -34,8 +34,11 @@ XtreamClient clientWith(Map<String, Object> routes, {List<Uri>? seen}) {
 void main() {
   group('credenziali', () {
     test('interpreta host:porta senza schema', () {
-      final c = XtreamCredentials.tryParse('panel.example:8080',
-          username: 'u', password: 'p');
+      final c = XtreamCredentials.tryParse(
+        'panel.example:8080',
+        username: 'u',
+        password: 'p',
+      );
       expect(c!.host, 'panel.example');
       expect(c.port, 8080);
       expect(c.useHttps, isFalse);
@@ -51,8 +54,11 @@ void main() {
     });
 
     test('riconosce https', () {
-      final c = XtreamCredentials.tryParse('https://panel.example',
-          username: 'u', password: 'p');
+      final c = XtreamCredentials.tryParse(
+        'https://panel.example',
+        username: 'u',
+        password: 'p',
+      );
       expect(c!.useHttps, isTrue);
       expect(c.scheme, 'https');
     });
@@ -111,13 +117,18 @@ void main() {
     test('credenziali rifiutate producono un errore parlante', () async {
       final c = clientWith({
         '': {
-          'user_info': {'auth': 0, 'status': 'Disabled'}
+          'user_info': {'auth': 0, 'status': 'Disabled'},
         },
       });
       expect(
         () => c.login(),
-        throwsA(isA<XtreamException>().having(
-            (e) => e.message, 'message', contains('Disabled'))),
+        throwsA(
+          isA<XtreamException>().having(
+            (e) => e.message,
+            'message',
+            contains('Disabled'),
+          ),
+        ),
       );
     });
 
@@ -125,8 +136,13 @@ void main() {
       final c = clientWith({'': '<html><body>403</body></html>'});
       expect(
         () => c.login(),
-        throwsA(isA<XtreamException>()
-            .having((e) => e.message, 'message', contains('JSON'))),
+        throwsA(
+          isA<XtreamException>().having(
+            (e) => e.message,
+            'message',
+            contains('JSON'),
+          ),
+        ),
       );
     });
 
@@ -135,8 +151,13 @@ void main() {
       final c = XtreamClient(creds, httpClient: mock);
       expect(
         () => c.login(),
-        throwsA(isA<XtreamException>()
-            .having((e) => e.message, 'message', contains('rete'))),
+        throwsA(
+          isA<XtreamException>().having(
+            (e) => e.message,
+            'message',
+            contains('rete'),
+          ),
+        ),
       );
     });
   });
@@ -189,8 +210,12 @@ void main() {
           {'stream_id': 4, 'name': 'D', 'tv_archive': true},
         ],
       });
-      expect((await c.liveStreams()).map((e) => e.tvArchive),
-          [true, true, false, true]);
+      expect((await c.liveStreams()).map((e) => e.tvArchive), [
+        true,
+        true,
+        false,
+        true,
+      ]);
     });
 
     test('una lista restituita come oggetto vuoto non lancia', () async {
@@ -230,10 +255,10 @@ void main() {
         'get_series_info': {
           'episodes': [
             [
-              {'id': 1, 'title': 'S1E1'}
+              {'id': 1, 'title': 'S1E1'},
             ],
             [
-              {'id': 2, 'title': 'S2E1'}
+              {'id': 2, 'title': 'S2E1'},
             ],
           ],
         },
@@ -278,17 +303,28 @@ void main() {
   });
 
   group('costruzione URL', () {
-    final c = XtreamClient(creds, httpClient: MockClient((_) async => http.Response('{}', 200)));
+    final c = XtreamClient(
+      creds,
+      httpClient: MockClient((_) async => http.Response('{}', 200)),
+    );
 
     test('live, VOD, serie', () {
-      expect(c.liveUrl(42).toString(),
-          'http://panel.example:8080/live/u/p/42.ts');
-      expect(c.liveUrl(42, extension: 'm3u8').toString(),
-          'http://panel.example:8080/live/u/p/42.m3u8');
-      expect(c.vodUrl(7, extension: 'mkv').toString(),
-          'http://panel.example:8080/movie/u/p/7.mkv');
-      expect(c.seriesUrl(9).toString(),
-          'http://panel.example:8080/series/u/p/9.mp4');
+      expect(
+        c.liveUrl(42).toString(),
+        'http://panel.example:8080/live/u/p/42.ts',
+      );
+      expect(
+        c.liveUrl(42, extension: 'm3u8').toString(),
+        'http://panel.example:8080/live/u/p/42.m3u8',
+      );
+      expect(
+        c.vodUrl(7, extension: 'mkv').toString(),
+        'http://panel.example:8080/movie/u/p/7.mkv',
+      );
+      expect(
+        c.seriesUrl(9).toString(),
+        'http://panel.example:8080/series/u/p/9.mp4',
+      );
     });
 
     test('la playlist usa sempre m3u_plus', () {
@@ -309,14 +345,19 @@ void main() {
         durationMinutes: 60,
         start: DateTime.utc(2026, 9, 8, 14, 5),
       );
-      expect(u.toString(),
-          'http://panel.example:8080/timeshift/u/p/60/2026-09-08:14-05/5.ts');
+      expect(
+        u.toString(),
+        'http://panel.example:8080/timeshift/u/p/60/2026-09-08:14-05/5.ts',
+      );
     });
   });
 
   group('fallback .m3u8 -> .ts', () {
     final stream = const XtreamStream(
-        id: 42, name: 'A', kind: XtreamStreamKind.live);
+      id: 42,
+      name: 'A',
+      kind: XtreamStreamKind.live,
+    );
 
     test('usa HLS quando il pannello lo supporta', () async {
       final c = clientWith(const {});
@@ -339,10 +380,13 @@ void main() {
         directSource: 'http://altro.example/percorso/strano.ts',
       );
       var probed = false;
-      final u = await c.resolveLiveUrl(s, probe: (_) async {
-        probed = true;
-        return true;
-      });
+      final u = await c.resolveLiveUrl(
+        s,
+        probe: (_) async {
+          probed = true;
+          return true;
+        },
+      );
       expect(u.toString(), 'http://altro.example/percorso/strano.ts');
       expect(probed, isFalse, reason: 'non serve sondare se l\'URL è fornito');
     });

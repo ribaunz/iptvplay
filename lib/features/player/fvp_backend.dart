@@ -108,7 +108,9 @@ class FvpBackend implements PlayerBackend {
     final size = (v.size.width > 0 && v.size.height > 0) ? v.size : null;
     if (size != null && !_sawFirstFrame) {
       _sawFirstFrame = true;
-      _log('primo frame video — size ${size.width.toInt()}x${size.height.toInt()}');
+      _log(
+        'primo frame video — size ${size.width.toInt()}x${size.height.toInt()}',
+      );
     }
 
     _emit(

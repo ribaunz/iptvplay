@@ -44,14 +44,20 @@ class Groups extends Table {
   IntColumn get channelCount => integer().withDefault(const Constant(0))();
 }
 
-@TableIndex(name: 'idx_channels_playlist_group', columns: {#playlistId, #groupId, #sortOrder})
+@TableIndex(
+  name: 'idx_channels_playlist_group',
+  columns: {#playlistId, #groupId, #sortOrder},
+)
 @TableIndex(name: 'idx_channels_tvg', columns: {#tvgId})
 class Channels extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get playlistId =>
       integer().references(Playlists, #id, onDelete: KeyAction.cascade)();
-  IntColumn get groupId =>
-      integer().nullable().references(Groups, #id, onDelete: KeyAction.setNull)();
+  IntColumn get groupId => integer().nullable().references(
+    Groups,
+    #id,
+    onDelete: KeyAction.setNull,
+  )();
 
   TextColumn get name => text()();
   TextColumn get url => text()();
@@ -80,7 +86,10 @@ class Channels extends Table {
 }
 
 /// Canali dichiarati nell'XMLTV, agganciati ai canali via `tvgId`.
-@TableIndex(name: 'idx_epgchan_playlist_xmltv', columns: {#playlistId, #xmltvId})
+@TableIndex(
+  name: 'idx_epgchan_playlist_xmltv',
+  columns: {#playlistId, #xmltvId},
+)
 class EpgChannels extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get playlistId =>
@@ -94,7 +103,10 @@ class EpgChannels extends Table {
 ///
 /// Va tenuta con una **retention window** (-1/+3 giorni): senza, ogni import
 /// XMLTV accumula righe e il database cresce senza limite.
-@TableIndex(name: 'idx_programmes_chan_start', columns: {#epgChannelId, #startUtc})
+@TableIndex(
+  name: 'idx_programmes_chan_start',
+  columns: {#epgChannelId, #startUtc},
+)
 @TableIndex(name: 'idx_programmes_stop', columns: {#stopUtc})
 class Programmes extends Table {
   IntColumn get id => integer().autoIncrement()();

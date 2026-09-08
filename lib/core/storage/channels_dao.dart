@@ -8,7 +8,8 @@ part 'channels_dao.g.dart';
 /// Accesso ai canali, con le due operazioni che devono reggere 50k righe:
 /// import in blocco e paginazione.
 @DriftAccessor(tables: [Channels, Groups, Playlists])
-class ChannelsDao extends DatabaseAccessor<AppDatabase> with _$ChannelsDaoMixin {
+class ChannelsDao extends DatabaseAccessor<AppDatabase>
+    with _$ChannelsDaoMixin {
   ChannelsDao(super.db);
 
   /// Inserisce i canali in blocchi, dentro un'unica transazione per blocco.
@@ -63,10 +64,11 @@ class ChannelsDao extends DatabaseAccessor<AppDatabase> with _$ChannelsDaoMixin 
 
   Future<int> countChannels(int playlistId) async {
     final c = countAll();
-    final row = await (selectOnly(channels)
-          ..addColumns([c])
-          ..where(channels.playlistId.equals(playlistId)))
-        .getSingle();
+    final row =
+        await (selectOnly(channels)
+              ..addColumns([c])
+              ..where(channels.playlistId.equals(playlistId)))
+            .getSingle();
     return row.read(c) ?? 0;
   }
 
@@ -95,6 +97,8 @@ class ChannelsDao extends DatabaseAccessor<AppDatabase> with _$ChannelsDaoMixin 
 
   /// Svuota i canali di una lista prima di un reimport.
   Future<int> clearPlaylistChannels(int playlistId) {
-    return (delete(channels)..where((c) => c.playlistId.equals(playlistId))).go();
+    return (delete(
+      channels,
+    )..where((c) => c.playlistId.equals(playlistId))).go();
   }
 }

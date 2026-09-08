@@ -66,7 +66,8 @@ class M3uWarning {
   final String? content;
 
   @override
-  String toString() => 'riga $line: $message${content != null ? " — $content" : ""}';
+  String toString() =>
+      'riga $line: $message${content != null ? " — $content" : ""}';
 }
 
 sealed class M3uEvent {
@@ -148,16 +149,19 @@ class M3uParser {
 
       if (line.startsWith('#EXTINF')) {
         if (pending != null) {
-          yield M3uWarningEvent(M3uWarning(
-            lineNo,
-            '#EXTINF senza URL: la voce precedente viene scartata',
-            content: pending.name,
-          ));
+          yield M3uWarningEvent(
+            M3uWarning(
+              lineNo,
+              '#EXTINF senza URL: la voce precedente viene scartata',
+              content: pending.name,
+            ),
+          );
         }
         final parsed = _parseExtInf(line, lineNo);
         if (parsed == null) {
           yield M3uWarningEvent(
-              M3uWarning(lineNo, '#EXTINF non interpretabile', content: line));
+            M3uWarning(lineNo, '#EXTINF non interpretabile', content: line),
+          );
           pending = null;
         } else {
           pending = parsed;
@@ -191,7 +195,8 @@ class M3uParser {
       // Riga non commento: è l'URL che chiude la voce corrente.
       if (pending == null) {
         yield M3uWarningEvent(
-            M3uWarning(lineNo, 'URL senza #EXTINF precedente', content: line));
+          M3uWarning(lineNo, 'URL senza #EXTINF precedente', content: line),
+        );
         continue;
       }
 
@@ -205,15 +210,18 @@ class M3uParser {
     }
 
     if (pending != null) {
-      yield M3uWarningEvent(M3uWarning(
-        lineNo,
-        'file terminato dopo un #EXTINF senza URL',
-        content: pending.name,
-      ));
+      yield M3uWarningEvent(
+        M3uWarning(
+          lineNo,
+          'file terminato dopo un #EXTINF senza URL',
+          content: pending.name,
+        ),
+      );
     }
     if (!sawHeader) {
       yield M3uWarningEvent(
-          const M3uWarning(0, 'manca l\'intestazione #EXTM3U'));
+        const M3uWarning(0, 'manca l\'intestazione #EXTM3U'),
+      );
     }
   }
 
@@ -223,9 +231,7 @@ class M3uParser {
     for (final key in ['url-tvg', 'x-tvg-url', 'tvg-url']) {
       final v = attrs[key];
       if (v == null || v.isEmpty) continue;
-      urls.addAll(
-        v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty),
-      );
+      urls.addAll(v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty));
     }
     return M3uHeader(
       epgUrls: urls.toSet().toList(growable: false),
@@ -258,11 +264,7 @@ class M3uParser {
     final durMatch = RegExp(r'^\s*(-?\d+(?:\.\d+)?)').firstMatch(meta);
     if (durMatch != null) duration = double.tryParse(durMatch.group(1)!);
 
-    return _PendingEntry(
-      name: name,
-      duration: duration,
-      attributes: attrs,
-    );
+    return _PendingEntry(name: name, duration: duration, attributes: attrs);
   }
 
   void _applyVlcOpt(_PendingEntry? pending, String opt) {
@@ -273,7 +275,6 @@ class M3uParser {
     final value = _unquote(opt.substring(i + 1).trim());
     switch (key) {
       case 'http-user-agent':
-
         pending.userAgent = value;
       case 'http-referrer':
       case 'http-referer':
@@ -383,7 +384,9 @@ class _PendingEntry {
       tvgId: _blankToNull(attributes['tvg-id']),
       tvgName: _blankToNull(attributes['tvg-name']),
       tvgLogo: _blankToNull(attributes['tvg-logo']),
-      groupTitle: (group != null && group.isNotEmpty) ? group : _blankToNull(extGrp),
+      groupTitle: (group != null && group.isNotEmpty)
+          ? group
+          : _blankToNull(extGrp),
       userAgent: userAgent,
       referrer: referrer,
       attributes: Map.unmodifiable(attributes),

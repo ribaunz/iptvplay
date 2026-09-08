@@ -29,7 +29,8 @@ class M3uImportResult {
   final Duration elapsed;
 
   @override
-  String toString() => 'M3uImportResult($channelsImported canali, '
+  String toString() =>
+      'M3uImportResult($channelsImported canali, '
       '$groupsCreated gruppi, ${warnings.length} avvisi, '
       '${elapsed.inMilliseconds} ms)';
 }
@@ -42,7 +43,7 @@ class M3uImportResult {
 /// sono isolate e la memoria del tab è limitata.
 class M3uImporter {
   M3uImporter(this.db, {this.chunkSize = 2000, this.maxWarnings = 200})
-      : _dao = ChannelsDao(db);
+    : _dao = ChannelsDao(db);
 
   final AppDatabase db;
   final ChannelsDao _dao;
@@ -59,8 +60,9 @@ class M3uImporter {
 
     if (replaceExisting) {
       await _dao.clearPlaylistChannels(playlistId);
-      await (db.delete(db.groups)..where((g) => g.playlistId.equals(playlistId)))
-          .go();
+      await (db.delete(
+        db.groups,
+      )..where((g) => g.playlistId.equals(playlistId))).go();
     }
 
     // Cache nome gruppo -> id, per non interrogare il database a ogni canale.
@@ -97,7 +99,9 @@ class M3uImporter {
             if (groupId == null) {
               // I gruppi vanno inseriti subito: i canali li referenziano con
               // una foreign key, quindi devono già esistere al flush.
-              groupId = await db.into(db.groups).insert(
+              groupId = await db
+                  .into(db.groups)
+                  .insert(
                     GroupsCompanion.insert(
                       playlistId: playlistId,
                       name: g,
@@ -131,11 +135,16 @@ class M3uImporter {
     await flush();
     await _dao.refreshCounts(playlistId);
 
-    await (db.update(db.playlists)..where((p) => p.id.equals(playlistId)))
-        .write(PlaylistsCompanion(
-      lastSyncAt: Value(DateTime.now().toUtc()),
-      epgUrl: epgUrls.isNotEmpty ? Value(epgUrls.first) : const Value.absent(),
-    ));
+    await (db.update(
+      db.playlists,
+    )..where((p) => p.id.equals(playlistId))).write(
+      PlaylistsCompanion(
+        lastSyncAt: Value(DateTime.now().toUtc()),
+        epgUrl: epgUrls.isNotEmpty
+            ? Value(epgUrls.first)
+            : const Value.absent(),
+      ),
+    );
 
     sw.stop();
     return M3uImportResult(

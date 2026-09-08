@@ -24,7 +24,8 @@ class EpgImportResult {
   final Duration elapsed;
 
   @override
-  String toString() => 'EpgImportResult($channelsImported canali, '
+  String toString() =>
+      'EpgImportResult($channelsImported canali, '
       '$programmesImported programmi, $programmesSkipped scartati, '
       '$programmesPurged eliminati, ${elapsed.inMilliseconds} ms)';
 }
@@ -72,9 +73,9 @@ class EpgImporter {
     final wanted = await _knownTvgIds(playlistId);
 
     // Ripartiamo puliti per questa lista, poi applichiamo la retention globale.
-    await (db.delete(db.epgChannels)
-          ..where((c) => c.playlistId.equals(playlistId)))
-        .go();
+    await (db.delete(
+      db.epgChannels,
+    )..where((c) => c.playlistId.equals(playlistId))).go();
 
     final channelRowIds = <String, int>{};
     var programmes = 0;
@@ -102,7 +103,9 @@ class EpgImporter {
           skipped++;
 
         case XmltvChannelEvent(:final channel):
-          channelRowIds[channel.id] = await db.into(db.epgChannels).insert(
+          channelRowIds[channel.id] = await db
+              .into(db.epgChannels)
+              .insert(
                 EpgChannelsCompanion.insert(
                   playlistId: playlistId,
                   xmltvId: channel.id,
@@ -114,22 +117,25 @@ class EpgImporter {
         case XmltvProgrammeEvent(:final programme):
           // Un <programme> può riferire un canale mai dichiarato in un
           // <channel>: lo si crea al volo invece di perdere il palinsesto.
-          final rowId = channelRowIds[programme.channelId] ??=
-              await db.into(db.epgChannels).insert(
-                    EpgChannelsCompanion.insert(
-                      playlistId: playlistId,
-                      xmltvId: programme.channelId,
-                    ),
-                  );
+          final rowId = channelRowIds[programme.channelId] ??= await db
+              .into(db.epgChannels)
+              .insert(
+                EpgChannelsCompanion.insert(
+                  playlistId: playlistId,
+                  xmltvId: programme.channelId,
+                ),
+              );
 
-          buffer.add(ProgrammesCompanion.insert(
-            epgChannelId: rowId,
-            startUtc: programme.start,
-            stopUtc: programme.stop,
-            title: programme.title,
-            description: Value(programme.description),
-            category: Value(programme.category),
-          ));
+          buffer.add(
+            ProgrammesCompanion.insert(
+              epgChannelId: rowId,
+              startUtc: programme.start,
+              stopUtc: programme.stop,
+              title: programme.title,
+              description: Value(programme.description),
+              category: Value(programme.category),
+            ),
+          );
           if (buffer.length >= chunkSize) await flush();
       }
     }
@@ -149,13 +155,15 @@ class EpgImporter {
 
   /// I `tvg-id` effettivamente usati dai canali della lista.
   Future<Set<String>> _knownTvgIds(int playlistId) async {
-    final rows = await db.customSelect(
-      // Apici SINGOLI: in SQLite "" è un identificatore, non una stringa.
-      'SELECT DISTINCT tvg_id FROM channels '
-      "WHERE playlist_id = ? AND tvg_id IS NOT NULL AND tvg_id != ''",
-      variables: [Variable<int>(playlistId)],
-      readsFrom: {db.channels},
-    ).get();
+    final rows = await db
+        .customSelect(
+          // Apici SINGOLI: in SQLite "" è un identificatore, non una stringa.
+          'SELECT DISTINCT tvg_id FROM channels '
+          "WHERE playlist_id = ? AND tvg_id IS NOT NULL AND tvg_id != ''",
+          variables: [Variable<int>(playlistId)],
+          readsFrom: {db.channels},
+        )
+        .get();
     return rows
         .map((r) => r.data['tvg_id'] as String?)
         .whereType<String>()

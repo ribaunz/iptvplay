@@ -90,8 +90,10 @@ ThemeData buildAppTheme() {
       filled: true,
       fillColor: AppColors.panel,
       hintStyle: t(15, FontWeight.w400, c: AppColors.muted),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: Gap.md, vertical: Gap.md),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: Gap.md,
+        vertical: Gap.md,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),
         borderSide: const BorderSide(color: AppColors.line),
@@ -110,10 +112,11 @@ ThemeData buildAppTheme() {
         backgroundColor: AppColors.tally,
         foregroundColor: AppColors.ink,
         textStyle: t(15, FontWeight.w600),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         padding: const EdgeInsets.symmetric(
-            horizontal: Gap.lg, vertical: Gap.md),
+          horizontal: Gap.lg,
+          vertical: Gap.md,
+        ),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -121,10 +124,11 @@ ThemeData buildAppTheme() {
         foregroundColor: AppColors.text,
         side: const BorderSide(color: AppColors.line),
         textStyle: t(15, FontWeight.w500),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         padding: const EdgeInsets.symmetric(
-            horizontal: Gap.lg, vertical: Gap.md),
+          horizontal: Gap.lg,
+          vertical: Gap.md,
+        ),
       ),
     ),
     textButtonTheme: TextButtonThemeData(

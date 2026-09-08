@@ -40,27 +40,33 @@ class _Value<T> extends Notifier<T> {
 }
 
 /// Lista attualmente aperta.
-final selectedPlaylistProvider =
-    NotifierProvider<_Value<int?>, int?>(() => _Value<int?>(null));
+final selectedPlaylistProvider = NotifierProvider<_Value<int?>, int?>(
+  () => _Value<int?>(null),
+);
 
 /// Gruppo selezionato; null significa "tutti i canali".
-final selectedGroupProvider =
-    NotifierProvider<_Value<int?>, int?>(() => _Value<int?>(null));
+final selectedGroupProvider = NotifierProvider<_Value<int?>, int?>(
+  () => _Value<int?>(null),
+);
 
 /// Testo di ricerca corrente.
-final searchQueryProvider =
-    NotifierProvider<_Value<String>, String>(() => _Value<String>(''));
+final searchQueryProvider = NotifierProvider<_Value<String>, String>(
+  () => _Value<String>(''),
+);
 
-final groupsProvider =
-    FutureProvider.family<List<Group>, int>((ref, playlistId) async {
+final groupsProvider = FutureProvider.family<List<Group>, int>((
+  ref,
+  playlistId,
+) async {
   // Si ricarica quando cambia il contenuto delle liste.
   ref.watch(playlistsProvider);
   return ref.watch(channelsDaoProvider).groupsOf(playlistId);
 });
 
 /// Risultati di ricerca full-text.
-final searchResultsProvider =
-    FutureProvider.autoDispose<List<Channel>>((ref) async {
+final searchResultsProvider = FutureProvider.autoDispose<List<Channel>>((
+  ref,
+) async {
   final query = ref.watch(searchQueryProvider);
   final playlistId = ref.watch(selectedPlaylistProvider);
   if (query.trim().isEmpty || playlistId == null) return const [];
@@ -73,19 +79,19 @@ final favoritesProvider = StreamProvider<List<Channel>>((ref) {
   final db = ref.watch(databaseProvider);
   final q = db.select(db.channels).join([
     innerJoin(db.favorites, db.favorites.channelId.equalsExp(db.channels.id)),
-  ])
-    ..orderBy([OrderingTerm.asc(db.favorites.sortOrder)]);
-  return q
-      .watch()
-      .map((rows) => rows.map((r) => r.readTable(db.channels)).toList());
+  ])..orderBy([OrderingTerm.asc(db.favorites.sortOrder)]);
+  return q.watch().map(
+    (rows) => rows.map((r) => r.readTable(db.channels)).toList(),
+  );
 });
 
 /// Id dei canali preferiti, per lo stato della stella nelle righe.
 final favoriteIdsProvider = StreamProvider<Set<int>>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.select(db.favorites).watch().map(
-        (rows) => rows.map((f) => f.channelId).toSet(),
-      );
+  return db
+      .select(db.favorites)
+      .watch()
+      .map((rows) => rows.map((f) => f.channelId).toSet());
 });
 
 /// Motore di riproduzione scelto.
@@ -97,8 +103,8 @@ enum PlayerBackendChoice { auto, mediaKit, fvp }
 
 final playerBackendChoiceProvider =
     NotifierProvider<_Value<PlayerBackendChoice>, PlayerBackendChoice>(
-  () => _Value<PlayerBackendChoice>(PlayerBackendChoice.auto),
-);
+      () => _Value<PlayerBackendChoice>(PlayerBackendChoice.auto),
+    );
 
 final playerBackendProvider = Provider<PlayerBackend>((ref) {
   final choice = ref.watch(playerBackendChoiceProvider);

@@ -22,7 +22,7 @@ class GatewayException implements Exception {
 /// provider pretendono.
 class NetworkGateway {
   NetworkGateway({http.Client? client, this.proxyBase, this.pageOriginOrNull})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   final http.Client _client;
 
@@ -56,17 +56,25 @@ class NetworkGateway {
   }
 
   /// Diagnosi preventiva: dice se vale la pena provare.
-  WebDiagnosis inspect(Uri target,
-      {WebRequestKind kind = WebRequestKind.dataFetch}) {
+  WebDiagnosis inspect(
+    Uri target, {
+    WebRequestKind kind = WebRequestKind.dataFetch,
+  }) {
     if (!kIsWeb) {
       return const WebDiagnosis(
-          reason: WebBlockReason.none, message: '', remedy: '');
+        reason: WebBlockReason.none,
+        message: '',
+        remedy: '',
+      );
     }
     // Col proxy attivo il browser parla solo col proxy, quindi i vincoli
     // valgono verso quello, non verso il provider.
     if (proxyBase != null) {
       return WebCapability.predict(
-          page: pageOrigin, target: proxyBase!, kind: kind);
+        page: pageOrigin,
+        target: proxyBase!,
+        kind: kind,
+      );
     }
     return WebCapability.predict(page: pageOrigin, target: target, kind: kind);
   }
@@ -85,13 +93,15 @@ class NetworkGateway {
       if (headers != null) request.headers.addAll(headers);
       final response = await _client.send(request);
       if (response.statusCode != 200) {
-        throw GatewayException(WebDiagnosis(
-          reason: WebBlockReason.networkError,
-          message: 'Il server ha risposto ${response.statusCode}.',
-          remedy: response.statusCode == 401 || response.statusCode == 403
-              ? 'Controlla nome utente e password.'
-              : 'Controlla l\'indirizzo.',
-        ));
+        throw GatewayException(
+          WebDiagnosis(
+            reason: WebBlockReason.networkError,
+            message: 'Il server ha risposto ${response.statusCode}.',
+            remedy: response.statusCode == 401 || response.statusCode == 403
+                ? 'Controlla nome utente e password.'
+                : 'Controlla l\'indirizzo.',
+          ),
+        );
       }
       return response.stream;
     } on GatewayException {
@@ -109,7 +119,10 @@ class NetworkGateway {
       }
       throw GatewayException(
         WebCapability.classifyFailure(
-            page: pageOrigin, target: target, error: e),
+          page: pageOrigin,
+          target: target,
+          error: e,
+        ),
         cause: e,
       );
     }

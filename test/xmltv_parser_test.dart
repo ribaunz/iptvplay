@@ -110,8 +110,10 @@ void main() {
     });
 
     test('il filtro sui canali scarta tutto il resto', () async {
-      final (channels, programmes, skipped) =
-          await parse(sample, filter: {'rai1.it'});
+      final (channels, programmes, skipped) = await parse(
+        sample,
+        filter: {'rai1.it'},
+      );
 
       expect(channels.map((c) => c.id), ['rai1.it']);
       expect(programmes.map((p) => p.channelId), ['rai1.it']);
@@ -191,41 +193,56 @@ void main() {
       expect(channels.map((c) => c.id), ['ok']);
     });
 
-    test('emette in streaming, senza attendere la fine del documento', () async {
-      final controller = StreamController<List<int>>();
-      final seen = <String>[];
+    test(
+      'emette in streaming, senza attendere la fine del documento',
+      () async {
+        final controller = StreamController<List<int>>();
+        final seen = <String>[];
 
-      final sub = XmltvParser().parse(controller.stream).listen((e) {
-        if (e is XmltvProgrammeEvent) seen.add(e.programme.title);
-      });
-      final done = sub.asFuture<void>();
+        final sub = XmltvParser().parse(controller.stream).listen((e) {
+          if (e is XmltvProgrammeEvent) seen.add(e.programme.title);
+        });
+        final done = sub.asFuture<void>();
 
-      controller.add(utf8.encode('<tv><programme channel="a" '
-          'start="20260908140000" stop="20260908150000">'
-          '<title>Primo</title></programme>'));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(seen, ['Primo']);
+        controller.add(
+          utf8.encode(
+            '<tv><programme channel="a" '
+            'start="20260908140000" stop="20260908150000">'
+            '<title>Primo</title></programme>',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(seen, ['Primo']);
 
-      controller.add(utf8.encode('<programme channel="a" '
-          'start="20260908150000" stop="20260908160000">'
-          '<title>Secondo</title></programme></tv>'));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(seen, ['Primo', 'Secondo']);
+        controller.add(
+          utf8.encode(
+            '<programme channel="a" '
+            'start="20260908150000" stop="20260908160000">'
+            '<title>Secondo</title></programme></tv>',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(seen, ['Primo', 'Secondo']);
 
-      await controller.close();
-      await done;
-    });
+        await controller.close();
+        await done;
+      },
+    );
 
     test('regge un XMLTV con 20.000 programmi', () async {
       final buf = StringBuffer('<tv>');
       for (var i = 0; i < 200; i++) {
-        buf.write('<channel id="c$i"><display-name>C$i</display-name></channel>');
+        buf.write(
+          '<channel id="c$i"><display-name>C$i</display-name></channel>',
+        );
       }
       for (var i = 0; i < 20000; i++) {
-        buf.write('<programme channel="c${i % 200}" '
-            'start="2026090812${(i % 60).toString().padLeft(2, '0')}00" '
-            'stop="2026090813${(i % 60).toString().padLeft(2, '0')}00">'
-            '<title>P$i</title></programme>');
+        buf.write(
+          '<programme channel="c${i % 200}" '
+          'start="2026090812${(i % 60).toString().padLeft(2, '0')}00" '
+          'stop="2026090813${(i % 60).toString().padLeft(2, '0')}00">'
+          '<title>P$i</title></programme>',
+        );
       }
       buf.write('</tv>');
 
@@ -237,9 +254,11 @@ void main() {
     test('il filtro riduce davvero il lavoro sul dataset grande', () async {
       final buf = StringBuffer('<tv>');
       for (var i = 0; i < 5000; i++) {
-        buf.write('<programme channel="c${i % 500}" '
-            'start="20260908120000" stop="20260908130000">'
-            '<title>P$i</title></programme>');
+        buf.write(
+          '<programme channel="c${i % 500}" '
+          'start="20260908120000" stop="20260908130000">'
+          '<title>P$i</title></programme>',
+        );
       }
       buf.write('</tv>');
 
@@ -298,8 +317,9 @@ void main() {
     test('parsa direttamente un XMLTV compresso', () async {
       final compressed = gzip.encode(utf8.encode(sample));
       final programmes = <XmltvProgramme>[];
-      await for (final e
-          in XmltvParser().parse(gunzipIfNeeded(Stream.value(compressed)))) {
+      await for (final e in XmltvParser().parse(
+        gunzipIfNeeded(Stream.value(compressed)),
+      )) {
         if (e is XmltvProgrammeEvent) programmes.add(e.programme);
       }
       expect(programmes.map((p) => p.title), ['Telegiornale', 'Documentario']);

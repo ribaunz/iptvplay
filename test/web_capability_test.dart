@@ -69,14 +69,17 @@ void main() {
   });
 
   group('classificazione dopo il fallimento', () {
-    test('il mixed content previsto ha la precedenza sull\'errore osservato', () {
-      final d = WebCapability.classifyFailure(
-        page: https,
-        target: Uri.parse('http://10.0.0.1/get.php'),
-        error: Exception('ClientException: Failed to fetch'),
-      );
-      expect(d.reason, WebBlockReason.mixedContentBlocked);
-    });
+    test(
+      'il mixed content previsto ha la precedenza sull\'errore osservato',
+      () {
+        final d = WebCapability.classifyFailure(
+          page: https,
+          target: Uri.parse('http://10.0.0.1/get.php'),
+          error: Exception('ClientException: Failed to fetch'),
+        );
+        expect(d.reason, WebBlockReason.mixedContentBlocked);
+      },
+    );
 
     test('su provider HTTPS un fallimento generico è CORS', () {
       // Nel browser una risposta bloccata da CORS non riporta il motivo: la si
@@ -99,18 +102,20 @@ void main() {
       expect(d.reason, WebBlockReason.networkError);
     });
 
-    test('un <video> diretto che fallisce è un problema di formato, non CORS',
-        () {
-      // Una <video> con src diretto non è soggetta a CORS: se fallisce, il
-      // browser non sa decodificare.
-      final d = WebCapability.classifyFailure(
-        page: https,
-        target: Uri.parse('https://portale.esempio.tv/live/u/p/1.ts'),
-        error: Exception('MEDIA_ERR_SRC_NOT_SUPPORTED'),
-        kind: WebRequestKind.directPlayback,
-      );
-      expect(d.reason, WebBlockReason.unsupportedFormat);
-    });
+    test(
+      'un <video> diretto che fallisce è un problema di formato, non CORS',
+      () {
+        // Una <video> con src diretto non è soggetta a CORS: se fallisce, il
+        // browser non sa decodificare.
+        final d = WebCapability.classifyFailure(
+          page: https,
+          target: Uri.parse('https://portale.esempio.tv/live/u/p/1.ts'),
+          error: Exception('MEDIA_ERR_SRC_NOT_SUPPORTED'),
+          kind: WebRequestKind.directPlayback,
+        );
+        expect(d.reason, WebBlockReason.unsupportedFormat);
+      },
+    );
 
     test('la riproduzione via MSE resta soggetta a CORS', () {
       final d = WebCapability.classifyFailure(

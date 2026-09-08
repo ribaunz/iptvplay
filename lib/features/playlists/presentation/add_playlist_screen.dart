@@ -63,19 +63,25 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
                 SegmentedButton<_SourceKind>(
                   segments: const [
                     ButtonSegment(
-                        value: _SourceKind.m3uUrl, label: Text('Indirizzo M3U')),
+                      value: _SourceKind.m3uUrl,
+                      label: Text('Indirizzo M3U'),
+                    ),
                     ButtonSegment(
-                        value: _SourceKind.m3uFile, label: Text('File')),
+                      value: _SourceKind.m3uFile,
+                      label: Text('File'),
+                    ),
                     ButtonSegment(
-                        value: _SourceKind.xtream, label: Text('Xtream')),
+                      value: _SourceKind.xtream,
+                      label: Text('Xtream'),
+                    ),
                   ],
                   selected: {_kind},
                   onSelectionChanged: _busy
                       ? null
                       : (s) => setState(() {
-                            _kind = s.first;
-                            _error = null;
-                          }),
+                          _kind = s.first;
+                          _error = null;
+                        }),
                 ),
                 const SizedBox(height: Gap.lg),
                 TextField(
@@ -98,8 +104,10 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
                     children: [
                       const LinearProgressIndicator(),
                       const SizedBox(height: Gap.md),
-                      Text(_progress ?? 'Importazione in corso',
-                          style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        _progress ?? 'Importazione in corso',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ],
                   )
                 else
@@ -183,10 +191,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     final target = Uri.tryParse(text);
     if (target == null || target.host.isEmpty) return const [];
 
-    final d = WebCapability.predict(
-      page: Uri.base,
-      target: target,
-    );
+    final d = WebCapability.predict(page: Uri.base, target: target);
     if (!d.isBlocked) return const [];
 
     return [
@@ -250,7 +255,9 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
       return '${e.diagnosis.message} ${e.diagnosis.remedy}'.trim();
     }
     if (e is XtreamException) {
-      return s.replaceFirst('XtreamException(', '').replaceFirst(RegExp(r'\)$'), '');
+      return s
+          .replaceFirst('XtreamException(', '')
+          .replaceFirst(RegExp(r'\)$'), '');
     }
     if (s.contains('SocketException') || s.contains('Failed host lookup')) {
       return 'Il server non risponde. Controlla l\'indirizzo e la connessione.';
@@ -273,14 +280,18 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     final name = _name.text.trim().isEmpty
         ? (host ?? url ?? 'Lista senza nome')
         : _name.text.trim();
-    return db.into(db.playlists).insert(PlaylistsCompanion.insert(
-          name: name,
-          type: type,
-          url: Value(url),
-          host: Value(host),
-          port: Value(port),
-          username: Value(username),
-        ));
+    return db
+        .into(db.playlists)
+        .insert(
+          PlaylistsCompanion.insert(
+            name: name,
+            type: type,
+            url: Value(url),
+            host: Value(host),
+            port: Value(port),
+            username: Value(username),
+          ),
+        );
   }
 
   Future<void> _importM3uFromUrl() async {
@@ -375,17 +386,22 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     if (result.channelsImported == 0) {
       // Una lista vuota è quasi sempre un errore di indirizzo o credenziali.
       final db = ref.read(databaseProvider);
-      await (db.delete(db.playlists)..where((p) => p.id.equals(playlistId)))
-          .go();
+      await (db.delete(
+        db.playlists,
+      )..where((p) => p.id.equals(playlistId))).go();
       throw 'Non è stato trovato nessun canale. '
           'Verifica che l\'indirizzo punti a una playlist M3U.';
     }
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${result.channelsImported} canali in '
-            '${result.groupsCreated} gruppi'),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${result.channelsImported} canali in '
+            '${result.groupsCreated} gruppi',
+          ),
+        ),
+      );
     }
   }
 }

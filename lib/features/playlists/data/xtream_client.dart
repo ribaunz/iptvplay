@@ -25,11 +25,7 @@ class XtreamCredentials {
 
   String get scheme => useHttps ? 'https' : 'http';
 
-  Uri get base => Uri(
-        scheme: scheme,
-        host: host,
-        port: port,
-      );
+  Uri get base => Uri(scheme: scheme, host: host, port: port);
 
   /// Interpreta ciò che l'utente incolla: `http://host:8080`, `host:8080`,
   /// oppure una URL completa di `player_api.php` con le credenziali già dentro.
@@ -78,8 +74,8 @@ class XtreamException implements Exception {
 /// pannelli reali divergono parecchio dallo schema nominale.
 class XtreamClient {
   XtreamClient(this.credentials, {http.Client? httpClient})
-      : _http = httpClient ?? http.Client(),
-        _ownsClient = httpClient == null;
+    : _http = httpClient ?? http.Client(),
+      _ownsClient = httpClient == null;
 
   final XtreamCredentials credentials;
   final http.Client _http;
@@ -159,10 +155,7 @@ class XtreamClient {
     XtreamStreamKind kind,
     String? categoryId,
   ) async {
-    final json = await _get({
-      'action': action,
-      'category_id': ?categoryId,
-    });
+    final json = await _get({'action': action, 'category_id': ?categoryId});
     return Coerce.toList(json)
         .map((e) => XtreamStream.fromJson(e, kind: kind))
         .toList();
@@ -216,26 +209,41 @@ class XtreamClient {
   ///
   /// `.ts` è il default storico dei pannelli; `.m3u8` è HLS ed è spesso
   /// instabile o assente. Vedi [resolveLiveUrl] per la scelta con fallback.
-  Uri liveUrl(int streamId, {String extension = 'ts'}) => credentials.base
-      .replace(path: '/live/${credentials.username}/'
-          '${credentials.password}/$streamId.$extension');
+  Uri liveUrl(int streamId, {String extension = 'ts'}) =>
+      credentials.base.replace(
+        path:
+            '/live/${credentials.username}/'
+            '${credentials.password}/$streamId.$extension',
+      );
 
-  Uri vodUrl(int streamId, {String extension = 'mp4'}) => credentials.base
-      .replace(path: '/movie/${credentials.username}/'
-          '${credentials.password}/$streamId.$extension');
+  Uri vodUrl(int streamId, {String extension = 'mp4'}) =>
+      credentials.base.replace(
+        path:
+            '/movie/${credentials.username}/'
+            '${credentials.password}/$streamId.$extension',
+      );
 
-  Uri seriesUrl(int episodeId, {String extension = 'mp4'}) => credentials.base
-      .replace(path: '/series/${credentials.username}/'
-          '${credentials.password}/$episodeId.$extension');
+  Uri seriesUrl(int episodeId, {String extension = 'mp4'}) =>
+      credentials.base.replace(
+        path:
+            '/series/${credentials.username}/'
+            '${credentials.password}/$episodeId.$extension',
+      );
 
   /// Timeshift. Funziona solo se il canale ha `tvArchive` a true.
-  Uri timeshiftUrl(int streamId, {required int durationMinutes, required DateTime start}) {
+  Uri timeshiftUrl(
+    int streamId, {
+    required int durationMinutes,
+    required DateTime start,
+  }) {
     final s = start.toUtc();
     String two(int v) => v.toString().padLeft(2, '0');
-    final stamp = '${s.year}-${two(s.month)}-${two(s.day)}:'
+    final stamp =
+        '${s.year}-${two(s.month)}-${two(s.day)}:'
         '${two(s.hour)}-${two(s.minute)}';
     return credentials.base.replace(
-      path: '/timeshift/${credentials.username}/${credentials.password}/'
+      path:
+          '/timeshift/${credentials.username}/${credentials.password}/'
           '$durationMinutes/$stamp/$streamId.ts',
     );
   }
@@ -243,23 +251,23 @@ class XtreamClient {
   /// Playlist M3U completa. **Sempre `m3u_plus`**: la variante `m3u` non
   /// contiene gli attributi `tvg-*`.
   Uri m3uUrl({String output = 'ts'}) => credentials.base.replace(
-        path: '/get.php',
-        queryParameters: {
-          'username': credentials.username,
-          'password': credentials.password,
-          'type': 'm3u_plus',
-          'output': output,
-        },
-      );
+    path: '/get.php',
+    queryParameters: {
+      'username': credentials.username,
+      'password': credentials.password,
+      'type': 'm3u_plus',
+      'output': output,
+    },
+  );
 
   /// XMLTV completo del provider.
   Uri xmltvUrl() => credentials.base.replace(
-        path: '/xmltv.php',
-        queryParameters: {
-          'username': credentials.username,
-          'password': credentials.password,
-        },
-      );
+    path: '/xmltv.php',
+    queryParameters: {
+      'username': credentials.username,
+      'password': credentials.password,
+    },
+  );
 
   /// Sceglie l'URL live che il pannello supporta davvero.
   ///

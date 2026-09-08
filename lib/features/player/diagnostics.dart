@@ -23,13 +23,13 @@ enum Verdict {
 
 extension VerdictLabel on Verdict {
   String get label => switch (this) {
-        Verdict.unknown => 'in attesa',
-        Verdict.healthy => 'OK',
-        Verdict.bug1441 => 'BUG #1441',
-        Verdict.bug1445 => 'BUG #1445',
-        Verdict.error => 'ERRORE',
-        Verdict.stalled => 'BLOCCATO',
-      };
+    Verdict.unknown => 'in attesa',
+    Verdict.healthy => 'OK',
+    Verdict.bug1441 => 'BUG #1441',
+    Verdict.bug1445 => 'BUG #1445',
+    Verdict.error => 'ERRORE',
+    Verdict.stalled => 'BLOCCATO',
+  };
 
   bool get isFailure =>
       this == Verdict.bug1441 ||
@@ -102,7 +102,8 @@ class Diagnostician {
     // Il ciclo seek→EOF è la firma piu' specifica: ha la precedenza.
     if (cannotSeekCount > 0 && eofCount >= 2) {
       verdict = Verdict.bug1445;
-      detail = 'Ciclo seek→EOF: "Cannot seek" ×$cannotSeekCount, EOF ×$eofCount.';
+      detail =
+          'Ciclo seek→EOF: "Cannot seek" ×$cannotSeekCount, EOF ×$eofCount.';
       return;
     }
 
@@ -111,21 +112,24 @@ class Diagnostician {
         s.position == Duration.zero &&
         !sawVideo) {
       verdict = Verdict.bug1441;
-      detail = 'Buffering da ${elapsed.inSeconds}s, position ferma a zero, '
+      detail =
+          'Buffering da ${elapsed.inSeconds}s, position ferma a zero, '
           'nessun frame video.';
       return;
     }
 
     if (elapsed.inSeconds >= 10 && s.playing && progressing && !sawVideo) {
       verdict = Verdict.bug1445;
-      detail = 'La position avanza (max ${_fmt(maxPosition)}) ma non è mai '
+      detail =
+          'La position avanza (max ${_fmt(maxPosition)}) ma non è mai '
           'arrivato un frame video: audio senza video.';
       return;
     }
 
     if (elapsed.inSeconds >= 8 && s.playing && progressing && s.hasVideo) {
       verdict = Verdict.healthy;
-      detail = 'Stabile da ${elapsed.inSeconds}s, frame '
+      detail =
+          'Stabile da ${elapsed.inSeconds}s, frame '
           '${s.videoSize!.width.toInt()}×${s.videoSize!.height.toInt()}, '
           'position ${_fmt(s.position)}.';
       return;
@@ -133,7 +137,8 @@ class Diagnostician {
 
     if (elapsed.inSeconds >= 20 && !progressing && !s.buffering) {
       verdict = Verdict.stalled;
-      detail = 'Nessun progresso da ${stalledFor.inSeconds}s e non in '
+      detail =
+          'Nessun progresso da ${stalledFor.inSeconds}s e non in '
           'buffering. Non corrisponde a una firma nota.';
       return;
     }
@@ -159,15 +164,18 @@ class Diagnostician {
     final elapsed = DateTime.now().difference(startedAt);
     if (!sawVideo && s.buffering) {
       verdict = Verdict.bug1441;
-      detail = 'Buffering ininterrotto per ${elapsed.inSeconds}s senza mai un '
+      detail =
+          'Buffering ininterrotto per ${elapsed.inSeconds}s senza mai un '
           'frame video.';
     } else if (!sawVideo) {
       verdict = Verdict.stalled;
-      detail = 'Nessun frame video in ${elapsed.inSeconds}s, senza errori '
+      detail =
+          'Nessun frame video in ${elapsed.inSeconds}s, senza errori '
           'espliciti né buffering.';
     } else {
       verdict = Verdict.stalled;
-      detail = 'Video visto (max ${_fmt(maxPosition)}) ma nessun verdetto '
+      detail =
+          'Video visto (max ${_fmt(maxPosition)}) ma nessun verdetto '
           'stabile in ${elapsed.inSeconds}s.';
     }
   }

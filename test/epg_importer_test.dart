@@ -19,7 +19,9 @@ void main() {
 
   setUp(() async {
     db = AppDatabase(NativeDatabase.memory());
-    playlistId = await db.into(db.playlists).insert(
+    playlistId = await db
+        .into(db.playlists)
+        .insert(
           PlaylistsCompanion.insert(name: 'Test', type: PlaylistType.m3u),
         );
   });
@@ -27,12 +29,16 @@ void main() {
   tearDown(() => db.close());
 
   Future<void> addChannel(String name, String? tvgId) async {
-    await db.into(db.channels).insert(ChannelsCompanion.insert(
-          playlistId: playlistId,
-          name: name,
-          url: 'http://x/1.ts',
-          tvgId: Value(tvgId),
-        ));
+    await db
+        .into(db.channels)
+        .insert(
+          ChannelsCompanion.insert(
+            playlistId: playlistId,
+            name: name,
+            url: 'http://x/1.ts',
+            tvgId: Value(tvgId),
+          ),
+        );
   }
 
   Future<EpgImportResult> importXml(String xml, {List<int>? rawBytes}) {
@@ -44,7 +50,12 @@ void main() {
   }
 
   /// Un programma relativo a [now], così i test restano stabili.
-  String programme(String channel, {required int fromHours, int lengthHours = 1, String title = 'P'}) {
+  String programme(
+    String channel, {
+    required int fromHours,
+    int lengthHours = 1,
+    String title = 'P',
+  }) {
     String fmt(DateTime d) =>
         '${d.year}${d.month.toString().padLeft(2, '0')}'
         '${d.day.toString().padLeft(2, '0')}'
@@ -147,14 +158,17 @@ void main() {
 </tv>
 ''');
     expect(r.programmesImported, 1);
-    expect((await db.select(db.epgChannels).get()).single.xmltvId,
-        'solo-nei-programmi');
+    expect(
+      (await db.select(db.epgChannels).get()).single.xmltvId,
+      'solo-nei-programmi',
+    );
   });
 
   test('importa direttamente un XMLTV gzip', () async {
     await addChannel('Rai 1', 'rai1.it');
 
-    final xml = '''
+    final xml =
+        '''
 <tv>
   <channel id="rai1.it"><display-name>Rai 1</display-name></channel>
   ${programme('rai1.it', fromHours: 1, title: 'Compresso')}
@@ -168,7 +182,8 @@ void main() {
 
   test('il reimport non duplica', () async {
     await addChannel('Rai 1', 'rai1.it');
-    final xml = '''
+    final xml =
+        '''
 <tv>
   <channel id="rai1.it"><display-name>Rai 1</display-name></channel>
   ${programme('rai1.it', fromHours: 1)}
@@ -193,7 +208,9 @@ void main() {
       buf.write('<channel id="c$i"><display-name>C$i</display-name></channel>');
     }
     for (var i = 0; i < 10000; i++) {
-      buf.write(programme('c${i % 500}', fromHours: 1 + (i % 40), title: 'P$i'));
+      buf.write(
+        programme('c${i % 500}', fromHours: 1 + (i % 40), title: 'P$i'),
+      );
     }
     buf.write('</tv>');
 

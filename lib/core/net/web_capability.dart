@@ -84,18 +84,22 @@ abstract final class WebCapability {
       if (_isBareIp(target.host)) {
         return const WebDiagnosis(
           reason: WebBlockReason.mixedContentBlocked,
-          message: 'Il provider usa un indirizzo IP senza HTTPS. I browser '
+          message:
+              'Il provider usa un indirizzo IP senza HTTPS. I browser '
               'bloccano queste richieste da una pagina sicura.',
-          remedy: 'Usa l\'app per Windows, Android o iOS, oppure configura un '
+          remedy:
+              'Usa l\'app per Windows, Android o iOS, oppure configura un '
               'proxy nelle impostazioni.',
         );
       }
       return const WebDiagnosis(
         reason: WebBlockReason.mixedContentUpgrade,
-        message: 'Il provider usa HTTP. Il browser prova a passare a HTTPS e, '
+        message:
+            'Il provider usa HTTP. Il browser prova a passare a HTTPS e, '
             'se il provider non lo supporta, la richiesta fallisce senza '
             'ripiego.',
-        remedy: 'Usa l\'app per Windows, Android o iOS, oppure configura un '
+        remedy:
+            'Usa l\'app per Windows, Android o iOS, oppure configura un '
             'proxy nelle impostazioni.',
       );
     }
@@ -147,7 +151,8 @@ abstract final class WebCapability {
     return const WebDiagnosis(
       reason: WebBlockReason.corsBlocked,
       message: 'Il provider non autorizza l\'accesso da una pagina web.',
-      remedy: 'Importa la lista da file, usa l\'app desktop o mobile, oppure '
+      remedy:
+          'Importa la lista da file, usa l\'app desktop o mobile, oppure '
           'configura un proxy nelle impostazioni.',
     );
   }

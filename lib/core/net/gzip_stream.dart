@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'gzip_stream_io.dart' if (dart.library.js_interop) 'gzip_stream_web.dart'
+import 'gzip_stream_io.dart'
+    if (dart.library.js_interop) 'gzip_stream_web.dart'
     as impl;
 
 /// I due byte magici di un file gzip.
@@ -24,7 +25,8 @@ Stream<List<int>> gunzipIfNeeded(Stream<List<int>> input) async* {
     sniffed = [...sniffed, ...iterator.current];
   }
 
-  final isGzip = sniffed.length >= 2 &&
+  final isGzip =
+      sniffed.length >= 2 &&
       sniffed[0] == _gzipMagic[0] &&
       sniffed[1] == _gzipMagic[1];
 
