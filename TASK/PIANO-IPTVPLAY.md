@@ -6,8 +6,8 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | **Fase 0 completata**; **Fase 1 parzialmente completata** — spike player misurato su Windows e Android |
-| **Prossimo passo** | Chiudere la Fase 1 (serve un Android fisico e un provider reale), poi Fase 2 — storage |
+| **Stato progetto** | Fasi **0** e **2** completate; **Fase 1** parzialmente completata (spike player misurato su Windows e Android) |
+| **Prossimo passo** | **Fase 3 — parser M3U**. La Fase 1 resta aperta: serve un Android fisico e un provider reale |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -259,7 +259,9 @@ CREATE INDEX idx_groups_playlist         ON groups(playlist_id, sort_order);
 
 ### Tre decisioni che evitano problemi seri
 
-**FTS5 per la ricerca.** Con 50k canali un `LIKE '%calcio%'` è visibilmente lento — è uno scan completo. FTS5 è incluso sia nel SQLite nativo bundlato da drift sia nel `sqlite3.wasm` che drift distribuisce, quindi la stessa implementazione funziona su tutti i target.
+**FTS5 per la ricerca.** FTS5 è incluso sia nel SQLite nativo bundlato da drift sia nel `sqlite3.wasm` distribuito, quindi la stessa implementazione funziona su tutti i target.
+
+> Misurato in Fase 2: a 50k righe su desktop il `LIKE '%…%'` **non** e' "visibilmente lento" (18 ms nel caso peggiore). FTS5 si giustifica per il caso peggiore migliore, l'insensibilita' ai diacritici e il ranking `bm25()` — e diventera' decisivo su mobile e su dataset piu' grandi.
 
 **Retention window sull'EPG.** Conserva solo da **-1 a +3 giorni**. Senza, ogni import XMLTV accumula programmi e il DB cresce senza limite. Purge a ogni sync:
 
@@ -678,11 +680,47 @@ L'architettura a **due backend è validata dai dati, non dall'ipotesi**: nessuno
 - [ ] Un provider IPTV reale, per: **MPEG-TS progressivo** (`/live/{u}/{p}/{id}.ts`, il default di Xtream, non coperto da nessuno stream pubblico), stream con `User-Agent`/`Referer` obbligatori, fallback `.m3u8` → `.ts`, comportamento sotto `max_connections`.
 - [ ] Riproduzione stabile per **10 minuti** continuativi (finora misurati 22 s per stream).
 
-### Fase 2 — Storage e schema drift
+### Fase 2 — Storage e schema drift ✅ COMPLETATA (8 settembre 2026)
 
-Tabelle, DAO, migrazioni, codegen. Setup web con `sqlite3.wasm` e `drift_worker.js`.
+Realizzato in `lib/core/storage/`: `tables.dart` (schema §4), `database.dart` (FTS5 + trigger + retention), `channels_dao.dart` (batch insert, keyset pagination, conteggi denormalizzati), `storage_benchmark.dart`. Asset web `sqlite3.wasm` e `drift_worker.js` presi dalla **stessa release** `drift-2.34.4`. **22 test** verdi su database in memoria.
 
-**Completa quando:** 50.000 righe fittizie sono inserite in batch e paginate fluidamente **sia su Windows che su web**, e la ricerca FTS5 risponde sotto i 100 ms.
+```bash
+flutter run -d windows --dart-define=BENCH=true
+flutter run -d chrome  --dart-define=BENCH=true
+```
+
+#### Misure con 50.000 canali su 120 gruppi
+
+| Operazione | Windows | Web (Chrome) |
+|---|---:|---:|
+| insert 50k (batch da 2000, con trigger FTS) | **971 ms** (~51k righe/s) | **1554 ms** (~32k righe/s) |
+| `COUNT(*)` | 6 ms | 8 ms |
+| keyset, prima pagina (50) | 4 ms | 5 ms |
+| keyset, pagina profonda (dopo 49.900) | **2 ms** | **3 ms** |
+| stessa pagina con `OFFSET 49900` | **57 ms** | **48 ms** |
+| FTS5 (4 query: frequente/rara/inesistente) | 0-10 ms | 0-9 ms |
+| `LIKE '%…%'` (stesse 4 query) | 1-18 ms | 1-13 ms |
+| `refreshCounts` | 99 ms | 146 ms |
+
+- **sqlite 3.53.4** su entrambe le piattaforme.
+- `journal_mode`: **wal** su Windows, **delete** su web (WAL non esiste lì, come previsto).
+- Tier di persistenza web scelto da drift: **`sharedIndexedDb`**, con `dedicatedWorkersInSharedWorkers` e `sharedArrayBuffers` mancanti — esattamente il ripiego atteso, dato che COOP/COEP non vengono impostati di proposito (§8).
+
+#### Tre conclusioni, di cui una corregge il piano
+
+**1. Il timore sul web era sovrastimato.** Il tier IndexedDB costa circa **1,6× sull'insert** e nulla di significativo su query e paginazione. Il web regge 50k canali senza accorgimenti particolari: la rinuncia a COOP/COEP non ha un prezzo pratico rilevante.
+
+**2. Il keyset è giustificato dai numeri**: 2-3 ms contro 48-57 ms dell'`OFFSET` sulla stessa pagina profonda, cioè **~20× più veloce**, e il divario cresce con la profondità.
+
+**3. ⚠️ Correzione al piano: l'affermazione che `LIKE '%…%'` sarebbe "visibilmente lento" con 50k canali NON è confermata.** Nel caso peggiore misurato (termine inesistente, scan completo) il LIKE resta a **18 ms su Windows e 13 ms su web** — impercettibile. FTS5 va comunque tenuto, ma per ragioni diverse da quelle scritte inizialmente: caso peggiore migliore (0 ms contro 18 ms), **insensibilità ai diacritici** (`unicode61 remove_diacritics 2`), e ordinamento per rilevanza con `bm25()`. Il vantaggio prestazionale diventerà decisivo su hardware mobile lento e su dataset più grandi, non a 50k su desktop.
+
+#### Dettagli implementativi che costano tempo se ignorati
+
+- **I trigger FTS5 sono obbligatori.** Con `content='channels'` (external content) l'indice non si aggiorna da solo: senza i tre trigger `AFTER INSERT/UPDATE/DELETE`, la ricerca resta vuota per sempre.
+- **La query utente va sanificata**: la sintassi FTS5 interpreta `"`, `*`, `-`, `:`. Una stringa di soli simboli genera un errore di sintassi, non un risultato vuoto.
+- **WAL non si attiva da solo**: senza `PRAGMA journal_mode = WAL` esplicito in `beforeOpen`, drift resta su `delete` anche su desktop.
+- **`sqlite3_flutter_libs` è EOL** (`0.6.0+eol`, "Not used anymore, update to version 3.x of package:sqlite3"): arriva come dipendenza transitiva ma è uno stub, perché `sqlite3` 3.x fornisce ormai le librerie native da sé. Nessuna azione richiesta.
+- **Su web `driftDatabase()` richiede il parametro `web:`** con gli URI di `sqlite3.wasm` e `drift_worker.js`, altrimenti fallisce a runtime con *"When compiling to the web, the `web` parameter needs to be set"*.
 
 ### Fase 3 — Parser M3U
 
@@ -809,4 +847,4 @@ Elencato esplicitamente perché non è stato possibile confermarlo, non perché 
 - [ ] **Requisito 12 tester / 14 giorni di closed testing** per nuovi account personali Google Play — probabilmente ancora in vigore, da confermare in Console.
 - [ ] **Fee corrente Microsoft Partner Center** — storicamente ~$19 individuale una tantum.
 - [ ] **Action Xtream non confermate** (§6) — validare contro un pannello reale in Fase 4.
-- [ ] **Comportamento reale di drift su web con 50k righe** su tier IndexedDB, senza COOP/COEP — misurare in Fase 2 prima di considerare lo schema definitivo.
+- [x] ~~**Comportamento reale di drift su web con 50k righe**~~ — misurato in Fase 2: tier **`sharedIndexedDb`**, insert 50k in **1554 ms** (1,6x rispetto a Windows), query e paginazione equivalenti. Il timore era sovrastimato.

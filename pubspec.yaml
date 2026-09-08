@@ -39,6 +39,9 @@ dependencies:
   media_kit_libs_video: ^1.0.7
   fvp: ^0.38.1
   video_player: ^2.14.0
+  drift: ^2.34.4
+  drift_flutter: ^0.3.1
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:
@@ -50,6 +53,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  drift_dev: ^2.34.6
+  build_runner: ^2.16.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

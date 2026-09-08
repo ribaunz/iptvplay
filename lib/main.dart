@@ -8,6 +8,8 @@ import 'package:fvp/fvp.dart' as fvp;
 // PlayerState.
 import 'package:media_kit/media_kit.dart' show MediaKit;
 
+import 'core/storage/database.dart';
+import 'core/storage/storage_benchmark.dart';
 import 'player/auto_probe.dart';
 import 'player/diagnostics.dart';
 import 'player/fvp_backend.dart';
@@ -22,6 +24,14 @@ import 'player/test_streams.dart';
 /// flutter run -d windows --dart-define=AUTOPROBE=true
 /// ```
 const kAutoProbe = bool.fromEnvironment('AUTOPROBE');
+
+/// Attiva il benchmark dello storage (Fase 2):
+///
+/// ```
+/// flutter run -d windows --dart-define=BENCH=true
+/// flutter run -d chrome  --dart-define=BENCH=true
+/// ```
+const kBench = bool.fromEnvironment('BENCH');
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,6 +105,8 @@ class _SpikePageState extends State<SpikePage> {
     super.initState();
     if (kAutoProbe) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _runAutoProbe());
+    } else if (kBench) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runBenchmark());
     } else {
       _attach();
     }
@@ -111,6 +123,19 @@ class _SpikePageState extends State<SpikePage> {
     _urlCtrl.dispose();
     _logScrollCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _runBenchmark() async {
+    final db = AppDatabase();
+    try {
+      await StorageBenchmark().run(db);
+    } catch (e, st) {
+      debugPrintSynchronously('BENCHMARK FALLITO: $e\n$st');
+    } finally {
+      await db.close();
+    }
+    // Su web `exit` non è disponibile: lì il report resta nella console.
+    if (!kIsWeb) exit(0);
   }
 
   Future<void> _runAutoProbe() async {
@@ -192,6 +217,12 @@ class _SpikePageState extends State<SpikePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (kBench) {
+      return const Scaffold(
+        body: Center(child: Text('Benchmark storage in corso — vedi la console.')),
+      );
+    }
+
     if (kAutoProbe) {
       // La superficie video va montata sul serio: se resta smontata, la
       // texture di media_kit su Windows non riceve mai una dimensione e ogni
