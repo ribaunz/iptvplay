@@ -1,30 +1,62 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:iptvplay/main.dart';
+import 'package:iptvplay/player/player_backend.dart';
+import 'package:iptvplay/player/test_streams.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('PlayerState', () {
+    test('hasVideo è false finché non arriva un frame', () {
+      const s = PlayerState(playing: true);
+      expect(s.hasVideo, isFalse);
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('hasVideo è true con una size valida', () {
+      const s = PlayerState(playing: true, videoSize: Size(1920, 1080));
+      expect(s.hasVideo, isTrue);
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    test('una size a larghezza zero non conta come video', () {
+      const s = PlayerState(playing: true, videoSize: Size(0, 0));
+      expect(s.hasVideo, isFalse);
+    });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    test('durata zero significa stream live', () {
+      const s = PlayerState(playing: true);
+      expect(s.isLive, isTrue);
+      expect(const PlayerState(duration: Duration(minutes: 3)).isLive, isFalse);
+    });
+
+    test('copyWith può azzerare esplicitamente un errore', () {
+      const s = PlayerState(error: 'boom');
+      expect(s.copyWith(clearError: true).error, isNull);
+      // Senza clearError l'errore viene conservato.
+      expect(s.copyWith(playing: true).error, 'boom');
+    });
+  });
+
+  group('test streams', () {
+    test('gli URL sono validi e in HTTPS', () {
+      for (final s in testStreams) {
+        final uri = Uri.tryParse(s.url);
+        expect(uri, isNotNull, reason: '${s.label}: URL non parsabile');
+        expect(uri!.scheme, 'https', reason: '${s.label}: atteso https');
+      }
+    });
+
+    test('esiste almeno una sonda per ciascuno dei due bug noti', () {
+      final probes = testStreams.where((s) => s.isRegressionProbe).toList();
+      expect(probes.length, greaterThanOrEqualTo(2));
+      expect(
+        probes.any((s) => s.expectedFailure!.contains('1441')),
+        isTrue,
+        reason: 'manca la sonda per media-kit#1441',
+      );
+      expect(
+        probes.any((s) => s.expectedFailure!.contains('1445')),
+        isTrue,
+        reason: 'manca la sonda per media-kit#1445',
+      );
+    });
   });
 }
