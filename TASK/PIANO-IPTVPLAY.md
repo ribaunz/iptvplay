@@ -10,7 +10,7 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 | **Repository** | [github.com/ribaunz/iptvplay](https://github.com/ribaunz/iptvplay) — pubblico, CI verde su Windows, Android, Web e iOS |
 | **Prossimo passo** | Chiudere le fasi aperte. Servono: un **Android fisico** (1, 6) e un **provider reale** (4, 7) |
 | **App ID** | `it.restylingweb.iptvplay` |
-| **Target** | Windows, Web (desktop + mobile), iOS, Android |
+| **Target** | Windows, Web (desktop + mobile), iOS, Android — **webOS TV pianificato** (Fase 9) |
 
 > **Come leggere questo documento.** Tutte le versioni dei package e i vincoli di piattaforma sono stati verificati su pub.dev, GitHub e documentazione ufficiale l'**8 settembre 2026**. Le date accanto a ogni versione servono a capire quando il dato è diventato vecchio. Ciò che non è stato possibile confermare è marcato *(da verificare)* ed elencato nella §13 — non trattarlo come un fatto.
 
@@ -65,6 +65,7 @@ Il web **non** è una piattaforma di pari livello, per ragioni strutturali del b
 | **Android** | Pieno | Phone/tablet; Android TV fuori ambito in v1 |
 | **iOS** | Pieno (build) | Non compilabile da Windows: serve Mac o CI macOS |
 | **Web** | **Ridotto** | Playback solo con provider HTTPS+CORS, oppure tramite proxy self-hosted |
+| **webOS TV (LG)** | **Pianificato** | Fase 9. SDK ufficiale LG, ma richiede webOS 26+ , ambiente Linux e una UI da telecomando |
 | macOS / Linux | Gratuiti | Escono dalla stessa base di codice; non testati attivamente in v1 |
 
 ---
@@ -432,6 +433,7 @@ Ogni campo mancante o di tipo inatteso deve degradare, non lanciare. Un pannello
 | Android | `MediaKitBackend` | `FvpBackend` | Vedi bug #1445 sotto |
 | iOS / macOS | `MediaKitBackend` | `FvpBackend` | `media_kit_libs_ios_video` è fermo al 2023 |
 | Web | `WebPlayerBackend` | — | Implementazione custom, vedi sotto |
+| webOS TV | `WebOsPlayerBackend` | — | Pianificato in Fase 9: né media_kit né fvp supportano webOS |
 
 ### I due bug che devi conoscere prima di scrivere una riga
 
@@ -977,6 +979,59 @@ Erano previste da §8 ma non erano mai state scritte nel progetto — un bug lat
 - **MSIX** per Windows: la CI produce la cartella `Release`, non un installer.
 - **Deploy automatico** del web: l'artefatto viene caricato, non pubblicato.
 
+### Fase 9 — webOS TV (LG) 📋 pianificata, non iniziata
+
+Aggiunta l'8 settembre 2026, dopo aver verificato che **LG ha rilasciato un SDK Flutter ufficiale** per webOS TV. Non è più un port sperimentale: LG ha riscritto in Flutter la propria app EPG, riportando avvio più rapido e minor uso di memoria.
+
+Per un'app IPTV il TV è il contesto d'uso più naturale, e a differenza del web **non ci sono i vincoli del browser**: niente mixed content, niente CORS.
+
+#### Cosa richiede
+
+| | |
+|---|---|
+| SDK | `flutter-webOS` (org GitHub `lg-flutter-webos`), licenza BSD-3 |
+| TV supportate | **webOS 26 Re:New e successive**. I TV usciti con webOS 26 richiedono l'aggiornamento Re:New; i modelli precedenti **non sono supportati** |
+| Ambiente di sviluppo | **solo Linux** (Ubuntu 22.04 / 24.04 / 26.04). Da Windows serve **WSL2** o il devcontainer Docker fornito da LG |
+| Componenti | flutter-webOS CLI, SDK e **webOS NDK** |
+| Sul TV | **Developer Mode** attiva |
+| Sicurezza | vanno dichiarati gli **Access Control Group**: senza, le chiamate Luna Service falliscono a runtime |
+
+```bash
+flutter-webos doctor -v
+flutter-webos precache -f
+flutter-webos create --platforms webos iptvplay
+flutter-webos devices
+flutter-webos build webos --release      # produce un .ipk
+flutter-webos run -d <device_id>
+```
+
+#### Cosa si riusa e cosa va riscritto
+
+**Si riusa quasi tutto.** Parser M3U, importer, client Xtream, pipeline EPG, schema drift e diagnostica sono Dart puro e non toccano la piattaforma.
+
+**Il player va aggiunto, non riscritto**: `WebOsPlayerBackend` diventa la quarta implementazione di `PlayerBackend`, accanto a media_kit, fvp e web. È il ritorno concreto della scelta fatta in Fase 1 — né `media_kit` né `fvp` supportano webOS, e senza quell'astrazione questa fase sarebbe una riscrittura.
+
+**Il lavoro vero è l'interfaccia, non la compilazione.** L'app oggi presuppone mouse e tocco. Sul TV serve:
+
+- **Navigazione con il telecomando**: gestione esplicita del focus, spostamento con il D-pad, `FocusTraversalGroup`, e un indicatore di focus visibile — sul TV non esiste l'hover.
+- **Leggibilità a tre metri**: la scala tipografica attuale è pensata per una scrivania.
+- Il **rail dei gruppi** e la **ricerca** vanno ripensati: una casella di testo con tastiera a schermo è il punto più fragile di ogni app TV.
+- La **riga di palinsesto** invece regge bene: numero di canale, programma in onda e filetto di avanzamento sono esattamente ciò che serve su un TV.
+
+#### Domande aperte, da chiudere prima di aprire il cantiere
+
+- [ ] **Quale versione di Flutter richiede `flutter-webOS`.** Il progetto è pinnato a 3.47.2; se l'SDK ne impone un'altra, è un vincolo strutturale e non un dettaglio.
+- [ ] **Il plugin media di webOS supporta MPEG-TS progressivo?** È il formato live di default dei pannelli Xtream. Se supportasse solo HLS, metà dei provider resterebbe fuori.
+- [ ] **`drift` funziona sull'embedder webOS?** Presumibilmente sì via SQLite FFI, dato che l'embedder è Linux-based, ma non è verificato.
+- [ ] Il plugin media si innesta su `video_player` o ha un'API propria?
+
+**Completa quando:** un `.ipk` si installa su un TV LG reale e riproduce un canale, navigabile interamente con il telecomando.
+
+> ⚠️ **Serve hardware.** Senza un TV LG con webOS 26+ questa fase finirebbe come iOS: compila ma non è mai stata eseguita. Vale la pena aprirla solo se il TV è disponibile.
+
+> **Alternativa più economica per il salotto**: **Android TV** riusa la build Android che già funziona e richiede solo il lavoro sulla navigazione da telecomando — cioè un sottoinsieme di questa fase. Samsung ha un equivalente per Tizen (`flutter-tizen`). Se l'obiettivo è "l'app sul televisore" e non "l'app su LG", Android TV è il percorso più breve.
+
+
 ---
 
 ## 11. Packaging, CI/CD e store
@@ -1066,4 +1121,7 @@ Elencato esplicitamente perché non è stato possibile confermarlo, non perché 
 - [ ] **Requisito 12 tester / 14 giorni di closed testing** per nuovi account personali Google Play — probabilmente ancora in vigore, da confermare in Console.
 - [ ] **Fee corrente Microsoft Partner Center** — storicamente ~$19 individuale una tantum.
 - [ ] **Action Xtream non confermate** (§6) — validare contro un pannello reale in Fase 4.
+- [ ] **Versione di Flutter richiesta da `flutter-webOS`** (§10, Fase 9) — il progetto è pinnato a 3.47.2; un pin diverso dell'SDK sarebbe un vincolo strutturale.
+- [ ] **Il plugin media di webOS supporta MPEG-TS progressivo?** Senza, metà dei provider Xtream resterebbe fuori.
+- [ ] **`drift` sull'embedder webOS** — presumibilmente sì via SQLite FFI, non verificato.
 - [x] ~~**Comportamento reale di drift su web con 50k righe**~~ — misurato in Fase 2: tier **`sharedIndexedDb`**, insert 50k in **1554 ms** (1,6x rispetto a Windows), query e paginazione equivalenti. Il timore era sovrastimato.

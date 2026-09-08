@@ -35,7 +35,8 @@ del documento.
 | 5 · EPG XMLTV | ✅ |
 | 6 · Interfaccia | 🟡 verificata su Windows; manca Android |
 | 7 · Web e diagnostica | 🟡 logica testata; la riproduzione web non è mai partita davvero |
-| 8 · Packaging e CI | in corso |
+| 8 · Packaging e CI | ✅ CI verde su Windows, Android, Web e iOS |
+| 9 · webOS TV (LG) | 📋 pianificata — SDK ufficiale LG, richiede webOS 26+ e un TV reale |
 
 ## Limiti noti
 
