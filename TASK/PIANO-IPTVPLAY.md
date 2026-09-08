@@ -6,8 +6,8 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | Fasi **0** e **2** completate; **Fase 1** parzialmente completata (spike player misurato su Windows e Android) |
-| **Prossimo passo** | **Fase 3 — parser M3U**. La Fase 1 resta aperta: serve un Android fisico e un provider reale |
+| **Stato progetto** | Fasi **0**, **2** e **3** completate; **Fase 1** parzialmente completata (spike player misurato su Windows e Android) |
+| **Prossimo passo** | **Fase 4 — client Xtream Codes**. La Fase 1 resta aperta: serve un Android fisico e un provider reale |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -722,11 +722,47 @@ flutter run -d chrome  --dart-define=BENCH=true
 - **`sqlite3_flutter_libs` è EOL** (`0.6.0+eol`, "Not used anymore, update to version 3.x of package:sqlite3"): arriva come dipendenza transitiva ma è uno stub, perché `sqlite3` 3.x fornisce ormai le librerie native da sé. Nessuna azione richiesta.
 - **Su web `driftDatabase()` richiede il parametro `web:`** con gli URI di `sqlite3.wasm` e `drift_worker.js`, altrimenti fallisce a runtime con *"When compiling to the web, the `web` parameter needs to be set"*.
 
-### Fase 3 — Parser M3U
+### Fase 3 — Parser M3U ✅ COMPLETATA (8 settembre 2026)
 
-Parser streaming con macchina a stati, più la suite di fixture malformate.
+Realizzato in `lib/features/playlists/data/`:
 
-**Completa quando:** tutte le fixture della tabella dei gotcha (§5) passano, e una lista da 50k canali si importa senza picchi di memoria e senza bloccare la UI **su web**.
+- **`m3u_parser.dart`** — parser streaming a macchina a stati, che emette eventi `M3uHeaderEvent` / `M3uChannelEvent` / `M3uWarningEvent`. Consuma `Stream<List<int>>` e non materializza mai il testo. Cede il controllo al event loop ogni `yieldEvery` canali (default 500).
+- **`m3u_importer.dart`** — consuma gli eventi e scrive su drift a blocchi di 2000, creando i gruppi al volo con una cache nome→id, poi ricalcola i conteggi denormalizzati e salva l'URL EPG scoperto nell'intestazione.
+
+**Tutti i gotcha della tabella §5 sono coperti da test**, più altri emersi scrivendoli. **56 test verdi** in totale nel progetto.
+
+#### Casi coperti
+
+| Caso | Comportamento |
+|---|---|
+| `group-title="Sport, Calcio"` | il nome è ciò che segue **l'ultima virgola non quotata**; lo split naïve è evitato con uno scanner che traccia le virgolette |
+| Virgola nel nome canale | idem — vince l'ultima virgola non quotata |
+| Attributi non quotati, o misti | scanner manuale che accetta `chiave="valore"` e `chiave=valore` sulla stessa riga |
+| BOM UTF-8 | rimosso dalla prima riga, altrimenti `#EXTM3U` non viene riconosciuto |
+| CRLF / terminazioni miste | gestite da `LineSplitter` |
+| `#EXTGRP` | alternativa a `group-title`, che però ha la precedenza |
+| `#EXTVLCOPT:http-user-agent` / `http-referrer` | persistiti sul canale e passati al `PlayerBackend`; accettata anche la grafia `http-referer` |
+| `#KODIPROP:` | conservati senza interpretarli (servono per il DRM) |
+| N direttive tra `#EXTINF` e URL | macchina a stati che accumula finché non arriva una riga non-commento |
+| `url-tvg` / `x-tvg-url` in `#EXTM3U` | estratti, anche multipli separati da virgola |
+| Attributi vuoti (`tvg-id=""`) | diventano `null`, non stringhe vuote |
+| Nome mancante dopo la virgola | ripiega su `tvg-name` |
+| Byte UTF-8 non validi | `allowMalformed`: si scartano i byte rotti invece di far fallire l'import |
+| `#EXTINF` senza URL / URL senza `#EXTINF` | segnalati come warning, il resto della lista prosegue |
+| File troncato, intestazione assente | warning, nessun errore fatale |
+
+#### Proprietà verificate dai test, non solo dichiarate
+
+- **Streaming reale**: un test alimenta lo stream a pezzi e verifica che il primo canale sia già emesso mentre lo stream è ancora aperto.
+- **Cooperatività**: un `Stream.periodic` riesce ad avanzare durante il parsing — è la proprietà che su web evita il blocco del tab, ed è verificata invece che assunta.
+- **Volume**: 50.000 voci parsate e importate, con paginazione e ricerca FTS5 funzionanti sui dati appena scritti.
+- **Avvisi limitati** (default 200): una playlist molto rotta ne produrrebbe decine di migliaia, vanificando lo streaming.
+
+#### Note implementative
+
+- Il decoder va agganciato con `.bind()` e non `.transform()`: i client HTTP e `utf8.encode` restituiscono `Stream<Uint8List>`, che `transform` rifiuta per via della tipizzazione del `StreamTransformer`.
+- La natura del canale (live/vod/series) in M3U è **euristica** — dedotta da `/movie/`, `/series/` e dalla durata positiva. Con Xtream l'informazione è esplicita e va preferita (§6).
+- `drift` esporta un `isNotNull` che collide con il matcher omonimo di `flutter_test`: va nascosto nei test.
 
 ### Fase 4 — Client Xtream Codes
 
