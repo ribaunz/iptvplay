@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../app/providers.dart';
+import '../../../core/net/network_gateway.dart';
+import '../../../core/net/web_capability.dart';
 import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
 import '../../../core/storage/tables.dart';
@@ -121,15 +123,13 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
             controller: _url,
             enabled: !_busy,
             keyboardType: TextInputType.url,
+            onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
               labelText: 'Indirizzo della playlist',
               hintText: 'http://esempio.tv/get.php?username=…',
             ),
           ),
-          if (kIsWeb) ...[
-            const SizedBox(height: Gap.md),
-            _webNotice(),
-          ],
+          ..._diagnosisFor(_url.text),
         ];
 
       case _SourceKind.m3uFile:
@@ -146,6 +146,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
           TextField(
             controller: _host,
             enabled: !_busy,
+            onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
               labelText: 'Indirizzo del portale',
               hintText: 'http://portale.esempio:8080',
@@ -164,30 +165,48 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
             obscureText: true,
             decoration: const InputDecoration(labelText: 'Password'),
           ),
-          if (kIsWeb) ...[
-            const SizedBox(height: Gap.md),
-            _webNotice(),
-          ],
+          ..._diagnosisFor(_host.text),
         ];
     }
   }
 
-  /// Su web il limite è del browser, non dell'app: dirlo prima evita che
-  /// l'utente creda che l'app sia rotta.
-  Widget _webNotice() {
-    return Container(
-      padding: const EdgeInsets.all(Gap.md),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        border: Border(left: BorderSide(color: AppColors.tally, width: 2)),
-      ),
-      child: Text(
-        'Nel browser, i provider che usano indirizzi http:// vengono bloccati '
-        'e molti non autorizzano l\'accesso da pagine web. Se l\'importazione '
-        'non riesce, usa l\'app desktop o mobile, oppure importa un file.',
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
+  /// Diagnosi **prima** del tentativo.
+  ///
+  /// Il mixed content è deterministico: si può prevedere dallo schema della
+  /// URL, senza fare alcuna richiesta. Dirlo mentre l'utente digita evita che
+  /// aspetti un fallimento annunciato e creda che l'app sia rotta.
+  List<Widget> _diagnosisFor(String raw) {
+    if (!kIsWeb) return const [];
+    var text = raw.trim();
+    if (text.isEmpty) return const [];
+    if (!text.contains('://')) text = 'http://$text';
+    final target = Uri.tryParse(text);
+    if (target == null || target.host.isEmpty) return const [];
+
+    final d = WebCapability.predict(
+      page: Uri.base,
+      target: target,
     );
+    if (!d.isBlocked) return const [];
+
+    return [
+      const SizedBox(height: Gap.md),
+      Container(
+        padding: const EdgeInsets.all(Gap.md),
+        decoration: const BoxDecoration(
+          color: AppColors.panel,
+          border: Border(left: BorderSide(color: AppColors.tally, width: 2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(d.message, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: Gap.xs),
+            Text(d.remedy, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    ];
   }
 
   Widget _errorPanel(String message) {
@@ -227,7 +246,12 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
   /// Traduce l'errore tecnico in qualcosa su cui l'utente possa agire.
   String _humanize(Object e) {
     final s = e.toString();
-    if (e is XtreamException) return s.replaceFirst('XtreamException(', '').replaceFirst(RegExp(r'\)$'), '');
+    if (e is GatewayException) {
+      return '${e.diagnosis.message} ${e.diagnosis.remedy}'.trim();
+    }
+    if (e is XtreamException) {
+      return s.replaceFirst('XtreamException(', '').replaceFirst(RegExp(r'\)$'), '');
+    }
     if (s.contains('SocketException') || s.contains('Failed host lookup')) {
       return 'Il server non risponde. Controlla l\'indirizzo e la connessione.';
     }
@@ -268,16 +292,13 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     }
 
     setState(() => _progress = 'Scarico la playlist');
-    final client = http.Client();
+    final gateway = NetworkGateway(pageOriginOrNull: kIsWeb ? Uri.base : null);
     try {
-      final res = await client.send(http.Request('GET', uri));
-      if (res.statusCode != 200) {
-        throw 'Il server ha risposto ${res.statusCode}.';
-      }
+      final stream = await gateway.openStream(uri);
       final id = await _createPlaylist(type: PlaylistType.m3u, url: raw);
-      await _runImport(id, res.stream);
+      await _runImport(id, stream);
     } finally {
-      client.close();
+      gateway.close();
     }
   }
 

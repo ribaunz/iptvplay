@@ -6,8 +6,8 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | Fasi **0**, **2**, **3**, **5** completate; **1**, **4**, **6** implementate ma non del tutto validate |
-| **Prossimo passo** | **Fase 7 — backend web e capability detection**. Aperte: **1** (Android fisico), **4** (provider reale), **6** (verifica Android) |
+| **Stato progetto** | Fasi **0**, **2**, **3**, **5** completate; **1**, **4**, **6**, **7** implementate ma non del tutto validate |
+| **Prossimo passo** | **Fase 8 — packaging e CI/CD**. Aperte: **1** (Android fisico), **4** (provider reale), **6** (verifica Android), **7** (riproduzione web e proxy) |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -881,11 +881,47 @@ Gli stati vuoti sono inviti ad agire, non vicoli ciechi. I fallimenti dicono cos
 
 **Da completare**: verifica su **Android** (il criterio richiede entrambe le piattaforme), schermata dei preferiti, e guida EPG estesa oltre il now/next già presente nelle righe.
 
-### Fase 7 — Backend web e capability detection
+### Fase 7 — Backend web e capability detection 🟡 logica completa, riproduzione web non provata sul campo (8 settembre 2026)
 
-`WebPlayerBackend` con la cascata di §7, probe di rete, messaggistica diagnostica di §9. Proxy opzionale in `tools/proxy/`.
+Realizzato:
 
-**Completa quando:** l'app su web distingue e comunica correttamente i tre casi (http-only / CORS mancante / formato non supportato) invece di mostrare un player nero, e con il proxy attivo un provider HTTP-only si riproduce.
+- **`lib/core/net/web_capability.dart`** — classificazione pura dei limiti del browser. **15 test.**
+- **`lib/core/net/network_gateway.dart`** — unico punto di uscita verso il provider, con innesto del proxy e traduzione degli errori in diagnosi.
+- **`lib/features/player/web/web_player_backend.dart`** — backend `<video>` + hls.js + mpegts.js via `dart:js_interop`, dietro import condizionale.
+- Diagnosi collegata alla schermata di aggiunta lista, **mentre l'utente digita**.
+
+#### La distinzione che rende l'app credibile
+
+A occhio, mixed content e CORS producono lo stesso player nero. Sono però cause diverse con rimedi diversi, e l'app ora le separa:
+
+| Causa | Quando | Cosa si dice all'utente |
+|---|---|---|
+| `mixedContentBlocked` | pagina HTTPS, provider HTTP su **IP nudo** | il browser **blocca**, non tenta l'upgrade: irrecuperabile senza proxy |
+| `mixedContentUpgrade` | pagina HTTPS, provider HTTP su dominio | il browser tenta HTTPS e, fallendo, non ripiega |
+| `corsBlocked` | provider HTTPS raggiungibile ma senza `Access-Control-Allow-Origin` | importa da file, usa l'app desktop, o configura un proxy |
+| `unsupportedFormat` | `<video>` diretto che fallisce — **non** è CORS, perché quel percorso non lo richiede | prova un altro canale |
+| `networkError` | DNS/timeout | controlla indirizzo e connessione |
+
+Due punti che il codice rende espliciti e che è facile sbagliare:
+
+- **Il mixed content è deterministico**: si prevede dallo schema della URL, senza fare richieste. Per questo la diagnosi compare **mentre si digita**, non dopo un fallimento annunciato.
+- **Nel browser un blocco CORS è indistinguibile da una rete assente** — l'errore non riporta il motivo, per progetto. La causa si deduce dal contesto: se la pagina è sicura e il bersaglio no, è mixed content; su un bersaglio raggiungibile, è quasi certamente CORS.
+
+`WebRequestKind` distingue inoltre i tre usi della stessa URL: `dataFetch` e `msePlayback` richiedono CORS, `directPlayback` (`<video src>`) **no**. È la ragione per cui su Safari uno stream può partire mentre l'import della lista fallisce.
+
+#### Cascata di riproduzione web
+
+`<video>` nativo (Safari/iOS, unico percorso senza CORS) → hls.js su MSE → mpegts.js per il `.ts` progressivo → `<video>` progressivo per i VOD. hls.js e mpegts.js sono caricati **lazy** da CDN: pesano 200-400 KB e la maggior parte delle sessioni non ne ha bisogno.
+
+Nota onesta: su web **gli header custom non sono applicabili** — il browser non permette di impostare `User-Agent` o `Referer` sulle richieste media. I provider che li pretendono non funzioneranno, e il backend lo registra invece di fallire in silenzio.
+
+#### Cosa NON è stato verificato
+
+- **La riproduzione web non è mai partita davvero.** Serve un provider HTTPS con CORS aperto, che non è disponibile qui. La cascata compila ed è cablata, ma non ha mai riprodotto un frame.
+- **La diagnosi mixed-content non è dimostrabile in locale**: il server di sviluppo serve su `http://localhost`, e da una pagina HTTP il mixed content non esiste — quindi la diagnosi correttamente non scatta. Il percorso è coperto dai test, non da una prova a schermo.
+- **Il proxy self-hosted non è stato scritto.** `NetworkGateway` ha l'innesto (`proxyBase`) e lo instrada, ma `tools/proxy/` non esiste ancora, e con esso manca la parte più delicata: la **riscrittura delle URL dei segmenti dentro il manifest**.
+
+> ✅ **Wasm dry run superato** con l'intero stack — drift, media_kit, fvp e la JS interop. La compatibilità WasmGC di §13 è ora confermata sulle dipendenze reali, non solo sul progetto scaffoldato.
 
 ### Fase 8 — Packaging e CI/CD
 
@@ -975,7 +1011,7 @@ Elencato esplicitamente perché non è stato possibile confermarlo, non perché 
 
 - [x] ~~**Versione Flutter esatta**~~ — confermato in Fase 0: **3.47.2** stable (Dart 3.13.2), rilascio 2026-08-27.
 - [x] ~~**Versione JDK** attesa da Flutter per Android~~ — confermato in Fase 0: **OpenJDK 25.0.3** (JetBrains Runtime incluso in Android Studio), impostato con `flutter config --jdk-dir`.
-- [x] ~~**Compatibilità WasmGC**~~ — il progetto scaffoldato supera il *Wasm dry run*. **Da riverificare a ogni nuova dipendenza aggiunta**, in particolare i backend player e drift.
+- [x] ~~**Compatibilità WasmGC**~~ — confermata in Fase 7 sullo **stack completo**: drift, media_kit, fvp e la JS interop del backend web superano il *Wasm dry run*. Resta da riverificare a ogni nuova dipendenza.
 - [x] ~~**Dimensione decompressa di `libmpv-2.dll` su Windows**~~ — misurata in Fase 1: **28,4 MB**. Versione: **v0.36.0-403-g652a1dd907** (build del 24 settembre 2023), che conferma la premessa della issue #1441.
 - [ ] **Label del runner macOS GitHub con Xcode 26** preinstallato.
 - [ ] **Tariffa corrente dei minuti macOS su GitHub Actions** — il dato trovato ($0,062/min dal 1° gennaio 2026) viene da fonte secondaria, non dalla pagina pricing ufficiale.

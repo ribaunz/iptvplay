@@ -7,6 +7,7 @@ import '../core/storage/database.dart';
 import '../features/player/fvp_backend.dart';
 import '../features/player/media_kit_backend.dart';
 import '../features/player/player_backend.dart';
+import '../features/player/web/web_backend_factory.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
@@ -104,10 +105,11 @@ final playerBackendProvider = Provider<PlayerBackend>((ref) {
   final PlayerBackend backend = switch (choice) {
     PlayerBackendChoice.fvp => FvpBackend(),
     PlayerBackendChoice.mediaKit => MediaKitBackend(),
-    // Su web media_kit è solo un wrapper <video>: fvp non lo supporta, quindi
-    // resta media_kit, ma la scelta va rivista quando arriverà il backend web
-    // dedicato (Fase 7).
-    PlayerBackendChoice.auto => MediaKitBackend(),
+    // Su web nessuno dei due backend nativi serve: media_kit è solo un
+    // wrapper <video> e fvp non supporta il web. Si usa il backend dedicato,
+    // con la cascata <video> nativo → hls.js → mpegts.js.
+    PlayerBackendChoice.auto =>
+      kIsWeb ? createWebPlayerBackend() : MediaKitBackend(),
   };
   if (kDebugMode) {
     debugPrint('Backend di riproduzione: ${backend.name}');
