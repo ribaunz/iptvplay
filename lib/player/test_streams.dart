@@ -2,6 +2,12 @@
 ///
 /// Sono scelti per **riprodurre i fallimenti noti**, non per fare una bella
 /// demo. Ogni voce dichiara che cosa dovrebbe rompere e come si riconosce.
+///
+/// Disponibilità verificata l'8 settembre 2026: gli URL di test invecchiano.
+/// Se una voce inizia a fallire su **tutti** i backend, sospetta prima il dato
+/// di test e poi il player — è già successo due volte in questo spike
+/// (BigBuckBunny finito in 403, e un live Akamai il cui manifest conteneva un
+/// URI di variante malformato).
 class TestStream {
   const TestStream({
     required this.label,
@@ -24,7 +30,7 @@ class TestStream {
 
 const testStreams = <TestStream>[
   TestStream(
-    label: 'Apple bipbop advanced (fMP4, con sottotitoli)',
+    label: 'Apple bipbop advanced (fMP4 + sottotitoli)',
     url:
         'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8',
     why:
@@ -36,31 +42,41 @@ const testStreams = <TestStream>[
         'si aggancia alla rendition sottotitoli invece che al video.',
   ),
   TestStream(
-    label: 'Apple bipbop 16x9 (TS, variant)',
+    label: 'Apple bipbop 16x9 (TS + sottotitoli)',
     url:
         'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
-    why: 'HLS su segmenti MPEG-TS, il formato più comune nei pannelli Xtream.',
+    why:
+        'HLS su segmenti MPEG-TS, il formato più comune nei pannelli Xtream. '
+        'Ha anch\'esso rendition sottotitoli, quindi è una seconda sonda #1441.',
   ),
   TestStream(
-    label: 'Akamai live test (HLS live, non-seekable)',
-    url: 'https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8',
+    label: 'Tagesschau (HLS live, non-seekable)',
+    url:
+        'https://tagesschau.akamaized.net/hls/live/2020115/tagesschau/tagesschau_1/master.m3u8',
     why:
-        'Stream live reale e quindi non-seekable: è la condizione della issue '
-        'media-kit#1445.',
+        'Live 24/7 reale, senza #EXT-X-ENDLIST e quindi non-seekable: è la '
+        'condizione della issue media-kit#1445.',
     expectedFailure:
         'media-kit#1445 — su Android: primo frame poi nero permanente, MENTRE '
         "l'audio continua. Nel log mpv compare 'Cannot seek in this stream' "
         "seguito da 'EOF code: 4' in ciclo ogni 2-4 secondi.",
   ),
   TestStream(
-    label: 'Mux test (HLS VOD multi-bitrate)',
-    url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-    why: 'Riferimento HLS "sano": se fallisce anche questo, il problema è il setup.',
+    label: 'Red Bull TV (HLS live, non-seekable)',
+    url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8',
+    why: 'Seconda sonda live, per non dipendere da un solo broadcaster.',
   ),
   TestStream(
-    label: 'Big Buck Bunny (MP4 progressivo)',
+    label: 'Mux test (HLS VOD multi-bitrate)',
+    url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+    why:
+        'Riferimento HLS "sano", senza rendition sottotitoli: se fallisce anche '
+        'questo, il problema è nel setup o nella misura, non nello stream.',
+  ),
+  TestStream(
+    label: 'MP4 progressivo (720p)',
     url:
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+        'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
     why:
         'Controllo di base senza HLS. Equivale a un VOD Xtream '
         '(/movie/{u}/{p}/{id}.mp4).',

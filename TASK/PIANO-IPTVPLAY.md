@@ -6,8 +6,8 @@ App Flutter multipiattaforma per gestire liste IPTV (M3U e Xtream Codes) e ripro
 |---|---|
 | **Documento** | `TASK/PIANO-IPTVPLAY.md` |
 | **Redatto** | 8 settembre 2026 |
-| **Stato progetto** | **Fase 0 completata** — toolchain installata, scaffolding creato, i tre target compilano |
-| **Prossimo passo** | **Fase 1 — spike player** (§10), il punto di rischio principale del progetto |
+| **Stato progetto** | **Fase 0 completata**; **Fase 1 parzialmente completata** — spike player misurato su Windows e Android |
+| **Prossimo passo** | Chiudere la Fase 1 (serve un Android fisico e un provider reale), poi Fase 2 — storage |
 | **App ID** | `it.restylingweb.iptvplay` |
 | **Target** | Windows, Web (desktop + mobile), iOS, Android |
 
@@ -638,15 +638,45 @@ La cartella `ios/` si genera anche da Windows (è scaffolding da template); solo
 - `flutter build web` → `build\web` (+ *"Wasm dry run succeeded"*: il progetto è già compatibile WasmGC)
 - `flutter build apk --debug` → `build\app\outputs\flutter-apk\app-debug.apk` (144 MB, normale in debug)
 
-### Fase 1 — Spike player ⚠️ PRIMA DI TUTTO IL RESTO
-
-Un'app minima con un campo URL e un player. Nessun database, nessun parser, nessuna UI.
-
-Da provare: uno stream live Xtream reale in `.ts` e in `.m3u8`, su **Windows e Android**, con **entrambi** i backend nativi (media_kit e fvp). Verifica sul campo se #1445 e #1441 ti colpiscono, e se la sostituzione di `libmpv-2.dll` su Windows risolve.
-
-**Completa quando:** uno stream live reale si riproduce stabilmente per almeno 10 minuti su Windows **e** su Android, e sai quale backend usare come default su ciascuna piattaforma.
+### Fase 1 — Spike player ⚠️ PRIMA DI TUTTO IL RESTO — 🟡 parzialmente completata (8 settembre 2026)
 
 > **Perché questa fase è prima di tutto.** Se entrambi i backend nativi fallissero sugli stream live reali, l'intero progetto va ripensato. È un rischio che va scoperto nella settimana 1, non dopo aver costruito parser, database e UI.
+
+**Realizzato**: `lib/player/` con l'interfaccia `PlayerBackend`, le implementazioni `MediaKitBackend` e `FvpBackend`, un `Diagnostician` che riconosce le firme di fallimento note, e un `AutoProbe` non interattivo:
+
+```bash
+flutter run -d windows       --dart-define=AUTOPROBE=true
+flutter run -d emulator-5554 --dart-define=AUTOPROBE=true
+```
+
+#### Risultati misurati (6 stream × 2 backend × 2 piattaforme)
+
+| Stream | Rendition sottotitoli | media_kit Win | media_kit Android | fvp Win | fvp Android |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Apple bipbop advanced (fMP4) | sì | ❌ #1441 | ❌ #1441 | ❌ instabile | ❌ instabile |
+| Apple bipbop 16x9 (TS) | sì | ❌ #1441 | ❌ #1441 | ✅ | ✅ |
+| Tagesschau (live, non-seekable) | no | ✅ | ✅ | ✅ | ✅ |
+| Red Bull TV (live, non-seekable) | no | ✅ | ✅ | ✅ | ✅ |
+| Mux test (VOD multi-bitrate) | no | ✅ | ✅ | ✅ | ❌ errore |
+| MP4 progressivo | — | ✅ | ✅ | ✅ | ✅ |
+
+#### Le tre conclusioni che contano
+
+**1. Il bug #1441 è reale, riproducibile, e correla esattamente con le rendition sottotitoli.**
+`libmpv-2.dll` bundlata è **v0.36.0-403-g652a1dd907**, cioè proprio la build del 24 settembre 2023 citata nella issue. I due soli stream che falliscono sono i due che hanno `#EXT-X-MEDIA:TYPE=SUBTITLES`; i tre senza sottotitoli funzionano. Prova discriminante: su *bipbop 16x9* **media_kit fallisce e fvp funziona**, sullo stesso host e formato.
+
+**2. Scoperta non prevista dalla issue: il fallimento si presenta identico anche su Android**, dove la libmpv non è quella del 2023. Non è un artefatto dell'emulatore: sullo stesso emulatore media_kit rende regolarmente frame 1280×720 e 1920×1080 sugli altri stream. → **la causa è più ampia di "vecchia libmpv su Windows"**, e riguarda la gestione HLS di media_kit in generale. Da segnalare upstream.
+
+**3. Il bug #1445 NON è stato riprodotto**, ma il risultato **non è concludente**. Entrambi gli stream live non-seekable hanno funzionato con media_kit su Android. L'emulatore però non è un ambiente attendibile per questa verifica: il suo stack GL è degradato (`eglCreateContext → EGL_BAD_ATTRIBUTE`, `glTexImage2D` che rifiuta il formato `0x822A`), e la #1445 riguarda il riaggancio della Surface, che su hardware reale si comporta diversamente. **Serve un dispositivo fisico.**
+
+#### Conseguenza sul design
+
+L'architettura a **due backend è validata dai dati, non dall'ipotesi**: nessuno dei due è superiore all'altro su tutta la matrice. media_kit vince su Mux/Android, fvp vince sul caso sottotitoli. L'override manuale del backend nelle impostazioni resta un requisito, non un lusso.
+
+**Per chiudere la fase mancano** (richiedono materiale che solo l'utente può fornire):
+- [ ] Un dispositivo Android **fisico**, per un verdetto attendibile sulla #1445.
+- [ ] Un provider IPTV reale, per: **MPEG-TS progressivo** (`/live/{u}/{p}/{id}.ts`, il default di Xtream, non coperto da nessuno stream pubblico), stream con `User-Agent`/`Referer` obbligatori, fallback `.m3u8` → `.ts`, comportamento sotto `max_connections`.
+- [ ] Riproduzione stabile per **10 minuti** continuativi (finora misurati 22 s per stream).
 
 ### Fase 2 — Storage e schema drift
 
@@ -773,7 +803,7 @@ Elencato esplicitamente perché non è stato possibile confermarlo, non perché 
 - [x] ~~**Versione Flutter esatta**~~ — confermato in Fase 0: **3.47.2** stable (Dart 3.13.2), rilascio 2026-08-27.
 - [x] ~~**Versione JDK** attesa da Flutter per Android~~ — confermato in Fase 0: **OpenJDK 25.0.3** (JetBrains Runtime incluso in Android Studio), impostato con `flutter config --jdk-dir`.
 - [x] ~~**Compatibilità WasmGC**~~ — il progetto scaffoldato supera il *Wasm dry run*. **Da riverificare a ogni nuova dipendenza aggiunta**, in particolare i backend player e drift.
-- [ ] **Dimensione decompressa di `libmpv-2.dll` su Windows** — verificata solo la 7z compressa (8,4 MB). Misurare al primo build.
+- [x] ~~**Dimensione decompressa di `libmpv-2.dll` su Windows**~~ — misurata in Fase 1: **28,4 MB**. Versione: **v0.36.0-403-g652a1dd907** (build del 24 settembre 2023), che conferma la premessa della issue #1441.
 - [ ] **Label del runner macOS GitHub con Xcode 26** preinstallato.
 - [ ] **Tariffa corrente dei minuti macOS su GitHub Actions** — il dato trovato ($0,062/min dal 1° gennaio 2026) viene da fonte secondaria, non dalla pagina pricing ufficiale.
 - [ ] **Requisito 12 tester / 14 giorni di closed testing** per nuovi account personali Google Play — probabilmente ancora in vigore, da confermare in Console.

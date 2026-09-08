@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show exit;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,10 +8,20 @@ import 'package:fvp/fvp.dart' as fvp;
 // PlayerState.
 import 'package:media_kit/media_kit.dart' show MediaKit;
 
+import 'player/auto_probe.dart';
+import 'player/diagnostics.dart';
 import 'player/fvp_backend.dart';
 import 'player/media_kit_backend.dart';
 import 'player/player_backend.dart';
 import 'player/test_streams.dart';
+
+/// Attiva la modalità non interattiva che cicla backend × stream e stampa i
+/// verdetti su stdout:
+///
+/// ```
+/// flutter run -d windows --dart-define=AUTOPROBE=true
+/// ```
+const kAutoProbe = bool.fromEnvironment('AUTOPROBE');
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,9 +60,6 @@ class SpikeApp extends StatelessWidget {
   }
 }
 
-/// Verdetto automatico del watchdog.
-enum Verdict { unknown, healthy, bug1441, bug1445, error }
-
 class SpikePage extends StatefulWidget {
   const SpikePage({super.key});
 
@@ -77,20 +85,19 @@ class _SpikePageState extends State<SpikePage> {
   PlayerState _state = const PlayerState();
   bool _initializing = false;
 
-  // --- stato del watchdog -------------------------------------------------
+  Diagnostician? _diag;
   Timer? _watchdog;
-  DateTime? _openedAt;
-  Duration _lastPosition = Duration.zero;
-  DateTime _lastPositionChange = DateTime.now();
-  int _eofCount = 0;
-  int _cannotSeekCount = 0;
-  Verdict _verdict = Verdict.unknown;
-  String _verdictDetail = '';
+
+  late final AutoProbe _probe = AutoProbe(backends: _backends);
 
   @override
   void initState() {
     super.initState();
-    _attach();
+    if (kAutoProbe) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runAutoProbe());
+    } else {
+      _attach();
+    }
   }
 
   @override
@@ -106,6 +113,12 @@ class _SpikePageState extends State<SpikePage> {
     super.dispose();
   }
 
+  Future<void> _runAutoProbe() async {
+    await _probe.run();
+    // Chiudiamo: il valore del probe è il report su stdout, non la finestra.
+    exit(0);
+  }
+
   Future<void> _attach() async {
     setState(() => _initializing = true);
     await _stateSub?.cancel();
@@ -115,18 +128,13 @@ class _SpikePageState extends State<SpikePage> {
 
     _stateSub = _backend.stateStream.listen((s) {
       if (!mounted) return;
-      if (s.position != _lastPosition) {
-        _lastPosition = s.position;
-        _lastPositionChange = DateTime.now();
-      }
+      _diag?.observeState(s);
       setState(() => _state = s);
     });
 
     _logSub = _backend.logStream.listen((e) {
       if (!mounted) return;
-      final text = e.message.toLowerCase();
-      if (text.contains('eof')) _eofCount++;
-      if (text.contains('cannot seek')) _cannotSeekCount++;
+      _diag?.observeLog(e);
       setState(() {
         _log.add(e);
         if (_log.length > 400) _log.removeRange(0, _log.length - 400);
@@ -151,102 +159,66 @@ class _SpikePageState extends State<SpikePage> {
     await _backend.dispose();
     setState(() {
       _backendIndex = index;
-      _resetDiagnostics();
+      _log.clear();
+      _diag = null;
+      _state = const PlayerState();
     });
     await _attach();
-  }
-
-  void _resetDiagnostics() {
-    _log.clear();
-    _eofCount = 0;
-    _cannotSeekCount = 0;
-    _verdict = Verdict.unknown;
-    _verdictDetail = '';
-    _openedAt = null;
-    _lastPosition = Duration.zero;
-    _lastPositionChange = DateTime.now();
-    _state = const PlayerState();
   }
 
   Future<void> _open() async {
     final uri = Uri.tryParse(_urlCtrl.text.trim());
     if (uri == null) return;
 
-    setState(_resetDiagnostics);
-    _openedAt = DateTime.now();
-    _startWatchdog();
+    setState(() {
+      _log.clear();
+      _state = const PlayerState();
+      _diag = Diagnostician(startedAt: DateTime.now());
+    });
+
+    _watchdog?.cancel();
+    _watchdog = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _diag?.evaluate(_state));
+    });
 
     try {
       await _backend.open(uri);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _verdict = Verdict.error;
-        _verdictDetail = '$e';
-      });
+      setState(() => _state = _state.copyWith(error: '$e'));
     }
-  }
-
-  /// Riconosce le firme dei due bug noti.
-  ///
-  /// Guardare lo schermo non basta: la #1445 mostra un nero che sembra un
-  /// problema di rete, e la #1441 uno spinner che sembra buffering lento.
-  /// Il pattern temporale è ciò che le distingue.
-  void _startWatchdog() {
-    _watchdog?.cancel();
-    _watchdog = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted || _openedAt == null) return;
-      final elapsed = DateTime.now().difference(_openedAt!);
-      final stalled = DateTime.now().difference(_lastPositionChange);
-
-      Verdict v = _verdict;
-      String detail = _verdictDetail;
-
-      if (_state.error != null) {
-        v = Verdict.error;
-        detail = _state.error!;
-      } else if (_cannotSeekCount > 0 && _eofCount >= 2) {
-        v = Verdict.bug1445;
-        detail =
-            'Ciclo seek→EOF rilevato: "Cannot seek" ×$_cannotSeekCount, EOF '
-            '×$_eofCount. È la firma di media-kit#1445.';
-      } else if (elapsed.inSeconds >= 12 &&
-          _state.buffering &&
-          _state.position == Duration.zero) {
-        v = Verdict.bug1441;
-        detail =
-            'Buffering da ${elapsed.inSeconds}s con position ferma a zero e '
-            'nessun frame video. È la firma di media-kit#1441 (rendition '
-            'sottotitoli).';
-      } else if (elapsed.inSeconds >= 10 &&
-          _state.playing &&
-          !_state.hasVideo &&
-          stalled.inSeconds < 3) {
-        v = Verdict.bug1445;
-        detail =
-            'La riproduzione avanza (position si muove) ma non è mai arrivato '
-            'un frame video: audio senza video, sintomo di media-kit#1445.';
-      } else if (elapsed.inSeconds >= 8 &&
-          _state.playing &&
-          _state.hasVideo &&
-          stalled.inSeconds < 3) {
-        v = Verdict.healthy;
-        detail =
-            'Riproduzione stabile da ${elapsed.inSeconds}s con frame video '
-            '${_state.videoSize!.width.toInt()}×${_state.videoSize!.height.toInt()}.';
-      }
-
-      if (v != _verdict || detail != _verdictDetail) {
-        setState(() {
-          _verdict = v;
-          _verdictDetail = detail;
-        });
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (kAutoProbe) {
+      // La superficie video va montata sul serio: se resta smontata, la
+      // texture di media_kit su Windows non riceve mai una dimensione e ogni
+      // stream risulterebbe falsamente rotto.
+      return Scaffold(
+        body: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Text('Auto-probe in corso — il report è sul terminale.'),
+            ),
+            Expanded(
+              child: ValueListenableBuilder<PlayerBackend?>(
+                valueListenable: _probe.activeBackend,
+                builder: (context, backend, _) {
+                  if (backend == null) {
+                    return const ColoredBox(color: Colors.black);
+                  }
+                  return SizedBox.expand(child: backend.buildView(context));
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final wide = MediaQuery.sizeOf(context).width >= 1000;
 
     return Scaffold(
@@ -398,7 +370,7 @@ class _SpikePageState extends State<SpikePage> {
                 padding: EdgeInsets.all(24),
                 child: Text(
                   'In riproduzione, ma nessun frame video.\n'
-                  'Se senti l\'audio, è il sintomo della #1445.',
+                  "Se senti l'audio, è il sintomo della #1445.",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.orangeAccent),
                 ),
@@ -442,8 +414,9 @@ class _SpikePageState extends State<SpikePage> {
               itemBuilder: (context, i) {
                 final e = _log[i];
                 final t = e.at;
-                final stamp =
-                    '${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}.${(t.millisecond ~/ 100)}';
+                final stamp = '${t.minute.toString().padLeft(2, '0')}:'
+                    '${t.second.toString().padLeft(2, '0')}.'
+                    '${t.millisecond ~/ 100}';
                 final color = switch (e.level) {
                   'error' => Colors.redAccent,
                   'warn' => Colors.orangeAccent,
@@ -467,20 +440,14 @@ class _SpikePageState extends State<SpikePage> {
   }
 
   Widget _verdictBanner() {
-    final (color, icon, title) = switch (_verdict) {
-      Verdict.healthy => (Colors.green, Icons.check_circle, 'Riproduzione sana'),
-      Verdict.bug1441 => (
-          Colors.orange,
-          Icons.warning_amber,
-          'Sintomo media-kit#1441'
-        ),
-      Verdict.bug1445 => (
-          Colors.deepOrange,
-          Icons.warning_amber,
-          'Sintomo media-kit#1445'
-        ),
-      Verdict.error => (Colors.red, Icons.error, 'Errore'),
-      Verdict.unknown => (Colors.blueGrey, Icons.hourglass_empty, 'In attesa…'),
+    final v = _diag?.verdict ?? Verdict.unknown;
+    final (color, icon) = switch (v) {
+      Verdict.healthy => (Colors.green, Icons.check_circle),
+      Verdict.bug1441 => (Colors.orange, Icons.warning_amber),
+      Verdict.bug1445 => (Colors.deepOrange, Icons.warning_amber),
+      Verdict.error => (Colors.red, Icons.error),
+      Verdict.stalled => (Colors.amber, Icons.pause_circle_outline),
+      Verdict.unknown => (Colors.blueGrey, Icons.hourglass_empty),
     };
 
     return Container(
@@ -496,13 +463,13 @@ class _SpikePageState extends State<SpikePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: TextStyle(
-                        color: color, fontWeight: FontWeight.bold)),
-                if (_verdictDetail.isNotEmpty)
+                Text(v.label,
+                    style:
+                        TextStyle(color: color, fontWeight: FontWeight.bold)),
+                if ((_diag?.detail ?? '').isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Text(_verdictDetail,
+                    child: Text(_diag!.detail,
                         style: const TextStyle(fontSize: 12)),
                   ),
               ],
@@ -529,10 +496,11 @@ class _SpikePageState extends State<SpikePage> {
         'video size',
         _state.videoSize == null
             ? '— (nessun frame)'
-            : '${_state.videoSize!.width.toInt()}×${_state.videoSize!.height.toInt()}'
+            : '${_state.videoSize!.width.toInt()}×'
+                '${_state.videoSize!.height.toInt()}'
       ),
-      ('EOF ricevuti', '$_eofCount'),
-      ('"Cannot seek"', '$_cannotSeekCount'),
+      ('EOF ricevuti', '${_diag?.eofCount ?? 0}'),
+      ('"Cannot seek"', '${_diag?.cannotSeekCount ?? 0}'),
       if (_state.error != null) ('error', _state.error!),
     ];
 
@@ -546,12 +514,12 @@ class _SpikePageState extends State<SpikePage> {
               Padding(
                 padding: const EdgeInsets.only(right: 12, bottom: 2),
                 child: Text(k,
-                    style: const TextStyle(
-                        fontSize: 12, color: Colors.white54)),
+                    style:
+                        const TextStyle(fontSize: 12, color: Colors.white54)),
               ),
               Text(v,
-                  style: const TextStyle(
-                      fontSize: 12, fontFamily: 'monospace')),
+                  style:
+                      const TextStyle(fontSize: 12, fontFamily: 'monospace')),
             ]),
         ],
       ),
