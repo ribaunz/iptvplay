@@ -1,0 +1,5 @@
+package it.restylingweb.iptvplay
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
