@@ -100,12 +100,7 @@ class PlaylistsScreen extends ConsumerWidget {
             child: const Icon(Icons.delete_outline_rounded),
           ),
           confirmDismiss: (_) => _confirmDelete(context, p),
-          onDismissed: (_) async {
-            final db = ref.read(databaseProvider);
-            await (db.delete(
-              db.playlists,
-            )..where((t) => t.id.equals(p.id))).go();
-          },
+          onDismissed: (_) => _delete(ref, p.id),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(
               horizontal: Gap.lg,
@@ -119,7 +114,39 @@ class PlaylistsScreen extends ConsumerWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
-            trailing: const Icon(Icons.chevron_right_rounded),
+            // Menu esplicito accanto alla freccia.
+            //
+            // Lo swipe da solo non basta: è una convenzione touch, e su
+            // desktop nessuno prova a trascinare una riga per eliminarla.
+            // L'azione resta disponibile in entrambi i modi.
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PopupMenuButton<String>(
+                  tooltip: 'Altre azioni',
+                  icon: const Icon(Icons.more_vert_rounded, size: 20),
+                  color: AppColors.panel,
+                  onSelected: (v) async {
+                    if (v == 'delete' && await _confirmDelete(context, p)) {
+                      await _delete(ref, p.id);
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_outline_rounded, size: 18),
+                          SizedBox(width: Gap.md),
+                          Text('Elimina lista'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
             onTap: () {
               ref.read(selectedPlaylistProvider.notifier).set(p.id);
               ref.read(selectedGroupProvider.notifier).set(null);
@@ -150,6 +177,13 @@ class PlaylistsScreen extends ConsumerWidget {
   static String _date(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/'
       '${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  /// Elimina la lista. I canali, i gruppi e i preferiti se ne vanno con lei
+  /// grazie ai vincoli ON DELETE CASCADE dello schema.
+  Future<void> _delete(WidgetRef ref, int playlistId) async {
+    final db = ref.read(databaseProvider);
+    await (db.delete(db.playlists)..where((t) => t.id.equals(playlistId))).go();
+  }
 
   Future<bool> _confirmDelete(BuildContext context, Playlist p) async {
     final ok = await showDialog<bool>(
