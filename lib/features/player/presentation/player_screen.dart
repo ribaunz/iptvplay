@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
+import '../../cast/data/cast_service.dart';
+import '../../cast/presentation/cast_sheet.dart';
 import '../player_backend.dart';
 
 /// Riproduzione a schermo intero.
@@ -33,6 +35,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Timer? _hideTimer;
   String? _failure;
 
+  CastStatus _cast = const CastStatus(state: CastState.idle);
+  StreamSubscription<CastStatus>? _castSub;
+
   @override
   void initState() {
     super.initState();
@@ -44,8 +49,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   void dispose() {
     _hideTimer?.cancel();
     _sub?.cancel();
+    _castSub?.cancel();
     _backend?.dispose();
     super.dispose();
+  }
+
+  /// Manda il canale a un televisore della rete.
+  ///
+  /// Il video non passa dall'app: al televisore si consegna l'URL e se lo
+  /// scarica da solo. Per questo la riproduzione locale viene messa in pausa —
+  /// tenerle entrambe attive raddoppierebbe la banda e, sui provider con
+  /// limite di connessioni, farebbe fallire una delle due.
+  Future<void> _castToTv() async {
+    final service = ref.read(castServiceProvider);
+    _castSub ??= service.statusStream.listen((s) {
+      if (mounted) setState(() => _cast = s);
+    });
+
+    final device = await CastSheet.show(context, service);
+    if (device == null || !mounted) return;
+
+    await _backend?.pause();
+    await service.play(
+      device,
+      url: Uri.parse(widget.channel.url),
+      title: widget.channel.name,
+      logoUrl: widget.channel.logoUrl,
+    );
+  }
+
+  Future<void> _stopCast() async {
+    await ref.read(castServiceProvider).stop();
+    if (mounted) {
+      setState(() => _cast = const CastStatus(state: CastState.idle));
+    }
+    await _backend?.play();
   }
 
   Future<void> _start() async {
@@ -115,6 +153,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             fit: StackFit.expand,
             children: [
               if (_backend != null) _backend!.buildView(context),
+              if (_cast.isActive || _cast.state == CastState.connecting)
+                _castOverlay(),
+              if (_cast.state == CastState.error) _castErrorPanel(),
               if (_failure != null) _failurePanel(),
               if (_failure == null && _state.buffering) _bufferingHint(),
               AnimatedOpacity(
@@ -127,6 +168,87 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Mentre si trasmette, lo schermo locale non mostra il video: dirlo evita
+  /// che sembri un guasto.
+  Widget _castOverlay() {
+    final connecting = _cast.state == CastState.connecting;
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              connecting ? Icons.cast_rounded : Icons.cast_connected_rounded,
+              size: 44,
+              color: AppColors.tally,
+            ),
+            const SizedBox(height: Gap.lg),
+            Text(
+              connecting
+                  ? 'Invio al televisore…'
+                  : 'In riproduzione su ${_cast.device?.name ?? "il televisore"}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            if (_cast.title != null) ...[
+              const SizedBox(height: Gap.xs),
+              Text(_cast.title!, style: Theme.of(context).textTheme.bodySmall),
+            ],
+            const SizedBox(height: Gap.lg),
+            OutlinedButton(
+              onPressed: _stopCast,
+              child: const Text('Riporta qui'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _castErrorPanel() {
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        margin: const EdgeInsets.all(Gap.lg),
+        padding: const EdgeInsets.all(Gap.lg),
+        decoration: BoxDecoration(
+          color: AppColors.panel,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.line),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Trasmissione non riuscita',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: Gap.sm),
+            Text(
+              _cast.message ?? 'Il televisore non ha accettato il canale.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: Gap.lg),
+            Row(
+              children: [
+                FilledButton(
+                  onPressed: _castToTv,
+                  child: const Text('Scegli un altro televisore'),
+                ),
+                const SizedBox(width: Gap.md),
+                OutlinedButton(
+                  onPressed: _stopCast,
+                  child: const Text('Riproduci qui'),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -286,6 +408,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   ],
                 ),
               ),
+              if (castSupported)
+                IconButton(
+                  onPressed: _cast.isActive ? _stopCast : _castToTv,
+                  tooltip: _cast.isActive
+                      ? 'Interrompi la trasmissione'
+                      : 'Trasmetti su un televisore',
+                  icon: Icon(
+                    _cast.isActive
+                        ? Icons.cast_connected_rounded
+                        : Icons.cast_rounded,
+                    color: _cast.isActive ? AppColors.tally : null,
+                  ),
+                ),
               if (_state.videoSize != null)
                 Text(
                   '${_state.videoSize!.width.toInt()}×'

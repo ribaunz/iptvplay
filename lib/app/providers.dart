@@ -7,6 +7,7 @@ import '../core/storage/database.dart';
 import '../features/player/fvp_backend.dart';
 import '../features/player/media_kit_backend.dart';
 import '../features/player/player_backend.dart';
+import '../features/cast/data/cast_service.dart';
 import '../features/player/web/web_backend_factory.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -123,3 +124,16 @@ final playerBackendProvider = Provider<PlayerBackend>((ref) {
   ref.onDispose(backend.dispose);
   return backend;
 });
+
+/// Trasmissione a un televisore sulla rete locale.
+///
+/// Non esiste su web: la scoperta SSDP richiede multicast UDP, che il browser
+/// non espone.
+final castServiceProvider = Provider<CastService>((ref) {
+  final service = CastService();
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+/// True dove la trasmissione è possibile.
+bool get castSupported => !kIsWeb;

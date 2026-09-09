@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- Evita che lo schermo si spenga durante la riproduzione. -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!--
+      Trasmissione a televisori sulla rete locale (DLNA/UPnP).
+      La scoperta SSDP usa multicast UDP: senza questo permesso Android filtra
+      i pacchetti multicast e nessun televisore viene trovato.
+    -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
 
     <application
         android:label="IPTVPlay"
