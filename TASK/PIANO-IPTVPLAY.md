@@ -1032,6 +1032,27 @@ flutter-webos run -d <device_id>
 > **Alternativa più economica per il salotto**: **Android TV** riusa la build Android che già funziona e richiede solo il lavoro sulla navigazione da telecomando — cioè un sottoinsieme di questa fase. Samsung ha un equivalente per Tizen (`flutter-tizen`). Se l'obiettivo è "l'app sul televisore" e non "l'app su LG", Android TV è il percorso più breve.
 
 
+#### Trappola: build incrementale e font delle icone
+
+Trovata il 9 settembre 2026 usando l'app, non dai test.
+
+Dopo aver aggiunto un'icona nuova (`Icons.more_vert_rounded` per il menu di eliminazione), in **release** il pulsante veniva disegnato ma **invisibile**: il widget c'era, occupava spazio, era cliccabile, ma il glifo non compariva.
+
+Causa: `flutter build` in release applica il **tree-shaking delle icone**, riducendo `MaterialIcons-Regular.otf` ai soli glifi usati. Una build **incrementale** può riusare il font ridotto già in cache, generato *prima* che l'icona esistesse — quindi il glifo manca.
+
+Perché è insidiosa:
+
+- I **test non la vedono**: in debug e nei widget test il tree-shaking non si applica, e `find.byIcon` trova comunque il widget. I quattro test scritti per questo caso passavano mentre l'app mostrava uno spazio vuoto.
+- Il **binario contiene le stringhe** (`Elimina lista`, `Altre azioni`), quindi anche ispezionare `app.so` conferma — a torto — che la modifica c'è.
+- Non produce **nessun errore**: né a build time né a runtime.
+
+Come riconoscerla: un elemento interattivo che occupa spazio e risponde al clic, ma non mostra la sua icona.
+
+Rimedio: forzare la rigenerazione del font. Basta una build con `--no-tree-shake-icons` seguita da una normale, oppure `flutter clean`. **Non** serve spedire `--no-tree-shake-icons` in produzione: costerebbe 1,6 MB invece di 4 KB, e il tree-shaking funziona correttamente quando il font viene rigenerato.
+
+La **CI non è esposta**: parte sempre da un checkout pulito, quindi non ha cache da riusare.
+
+
 ---
 
 ## 11. Packaging, CI/CD e store
