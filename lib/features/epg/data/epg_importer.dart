@@ -141,7 +141,9 @@ class EpgImporter {
     }
 
     await flush();
-    final purged = await db.purgeOldProgrammes(keep: keepPast);
+    // Stesso riferimento usato per filtrare: il purge deve guardare l'istante
+    // dell'import, non l'orologio di sistema.
+    final purged = await db.purgeOldProgrammes(keep: keepPast, now: reference);
 
     sw.stop();
     return EpgImportResult(
