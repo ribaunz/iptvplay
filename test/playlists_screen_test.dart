@@ -111,4 +111,113 @@ void main() {
 
     expect(await db.select(db.playlists).get(), hasLength(1));
   });
+
+  group('modifica', () {
+    // Lista scaricata da un indirizzo: è il caso in cui il form deve
+    // ripresentare la sorgente, non solo il nome.
+    final scaricata = Playlist(
+      id: 7,
+      name: 'Lista remota',
+      type: PlaylistType.m3u,
+      url: 'http://esempio.tv/lista.m3u',
+      channelCount: 10,
+      isActive: true,
+    );
+
+    Future<AppDatabase> db7() async {
+      final db = AppDatabase(NativeDatabase.memory());
+      await db.into(db.playlists).insert(scaricata);
+      return db;
+    }
+
+    Future<void> pump7(WidgetTester tester, AppDatabase db) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            databaseProvider.overrideWithValue(db),
+            playlistsProvider.overrideWith((ref) => Stream.value([scaricata])),
+          ],
+          child: MaterialApp(
+            theme: buildAppTheme(),
+            home: const PlaylistsScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    /// Apre il menu e sceglie "Modifica lista".
+    Future<void> openEditor(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Modifica lista'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('il comando sta nello stesso menu di elimina', (tester) async {
+      final db = await db7();
+      addTearDown(db.close);
+      await pump7(tester, db);
+
+      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('Modifica lista'), findsOneWidget);
+      expect(find.text('Elimina lista'), findsOneWidget);
+    });
+
+    testWidgets('il form arriva già compilato', (tester) async {
+      final db = await db7();
+      addTearDown(db.close);
+      await pump7(tester, db);
+      await openEditor(tester);
+
+      // Ripresentare i valori attuali è tutta la differenza fra modificare e
+      // riscrivere da capo.
+      expect(find.widgetWithText(AppBar, 'Modifica lista'), findsOneWidget);
+      expect(find.text('Lista remota'), findsOneWidget);
+      expect(find.text('http://esempio.tv/lista.m3u'), findsOneWidget);
+    });
+
+    testWidgets('rinominare non riscarica i canali', (tester) async {
+      final db = await db7();
+      addTearDown(db.close);
+      await pump7(tester, db);
+      await openEditor(tester);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Lista remota'),
+        'Nome nuovo',
+      );
+      await tester.pumpAndSettle();
+
+      // Con la sorgente intatta non deve comparire l'avviso: se comparisse,
+      // salvare toccherebbe i canali per un semplice rinomina.
+      expect(find.textContaining('riscaricati e sostituiti'), findsNothing);
+
+      await tester.tap(find.text('Salva modifiche'));
+      await tester.pumpAndSettle();
+
+      final saved = await db.select(db.playlists).getSingle();
+      expect(saved.name, 'Nome nuovo');
+      expect(saved.url, 'http://esempio.tv/lista.m3u');
+    });
+
+    testWidgets('cambiare sorgente avvisa prima di salvare', (tester) async {
+      final db = await db7();
+      addTearDown(db.close);
+      await pump7(tester, db);
+      await openEditor(tester);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'http://esempio.tv/lista.m3u'),
+        'http://altro.tv/lista.m3u',
+      );
+      await tester.pumpAndSettle();
+
+      // La perdita dei preferiti è una conseguenza invisibile del cascade:
+      // va detta prima del salvataggio, non scoperta dopo.
+      expect(find.textContaining('riscaricati e sostituiti'), findsOneWidget);
+      expect(find.textContaining('preferiti'), findsOneWidget);
+    });
+  });
 }
