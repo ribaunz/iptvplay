@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'package:iptvplay/core/net/user_agents.dart';
 import 'package:iptvplay/features/playlists/data/xtream_client.dart';
 import 'package:iptvplay/features/playlists/data/xtream_models.dart';
 
@@ -423,6 +424,47 @@ void main() {
       expect(seen.single.queryParameters['username'], 'u');
       expect(seen.single.queryParameters['password'], 'p');
       expect(seen.single.path, '/player_api.php');
+    });
+  });
+
+  group('User-Agent', () {
+    test('le chiamate a player_api si presentano con uno User-Agent', () async {
+      // Senza, dart:io manda `Dart/3.x (dart:io)` e molti pannelli rispondono
+      // 403 pur avendo credenziali valide: e' lo stesso difetto che colpiva
+      // l'import della M3U.
+      final seen = <http.BaseRequest>[];
+      final mock = MockClient((req) async {
+        seen.add(req);
+        return http.Response(
+          jsonEncode({
+            'user_info': {'auth': 1, 'status': 'Active'},
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      await XtreamClient(creds, httpClient: mock).login();
+
+      expect(seen.single.headers['user-agent'], UserAgents.vlc);
+    });
+
+    test('anche la sonda HLS si presenta allo stesso modo', () async {
+      // Un probe rifiutato con 403 farebbe ripiegare su `.ts` per il motivo
+      // sbagliato, nascondendo un HLS che in realta' c'e'.
+      final seen = <http.BaseRequest>[];
+      final mock = MockClient((req) async {
+        seen.add(req);
+        return http.Response('', 200);
+      });
+      final client = XtreamClient(creds, httpClient: mock);
+      await client.resolveLiveUrl(
+        const XtreamStream(id: 1, name: 'Uno', kind: XtreamStreamKind.live),
+      );
+
+      expect(seen, isNotEmpty);
+      for (final req in seen) {
+        expect(req.headers['user-agent'], UserAgents.vlc);
+      }
     });
   });
 }

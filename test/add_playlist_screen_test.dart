@@ -35,6 +35,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Scorre fino al pulsante e salva.
+  ///
+  /// Il form e' un ListView: i figli fuori schermo non vengono costruiti, e con
+  /// l'aggiunta del campo User-Agent il pulsante e' finito oltre la piega su
+  /// uno schermo di prova da 600px. Cercarlo senza scorrere non lo trova.
+  Future<void> save(WidgetTester tester) async {
+    await tester.scrollUntilVisible(
+      find.text('Salva modifiche'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Salva modifiche'));
+    await tester.pumpAndSettle();
+  }
+
   final xtream = Playlist(
     id: 3,
     name: 'Portale',
@@ -44,6 +60,15 @@ void main() {
     username: 'mario',
     url: 'http://mio.portale.tv:8080/get.php?username=mario&password=x',
     channelCount: 5,
+    isActive: true,
+  );
+
+  final scaricata = Playlist(
+    id: 5,
+    name: 'Lista remota',
+    type: PlaylistType.m3u,
+    url: 'http://esempio.tv/lista.m3u',
+    channelCount: 10,
     isActive: true,
   );
 
@@ -81,10 +106,7 @@ void main() {
       'Portale nuovo',
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
+    await save(tester);
 
     final saved = await db.select(db.playlists).getSingle();
     expect(saved.name, 'Portale nuovo');
@@ -134,10 +156,7 @@ void main() {
       'Rinominata',
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
+    await save(tester);
 
     final saved = await db.select(db.playlists).getSingle();
     expect(saved.name, 'Rinominata');
@@ -153,10 +172,7 @@ void main() {
 
     await tester.enterText(find.widgetWithText(TextField, 'Da disco'), '   ');
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
+    await save(tester);
 
     expect(find.textContaining('Dai un nome alla lista'), findsOneWidget);
     final saved = await db.select(db.playlists).getSingle();
@@ -177,15 +193,48 @@ void main() {
       'http://nuovo.tv:8080',
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Salva modifiche'));
-    await tester.pumpAndSettle();
+    await save(tester);
 
     expect(find.textContaining('serve la password'), findsOneWidget);
     // La lista non deve essere stata trasformata a metà.
     final saved = await db.select(db.playlists).getSingle();
     expect(saved.type, PlaylistType.m3u);
     expect(saved.url, 'sky.m3u');
+  });
+
+  testWidgets('lo User-Agent scelto viene salvato sulla lista', (tester) async {
+    final db = await seed(scaricata);
+    addTearDown(db.close);
+    await pump(tester, db, scaricata);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'User-Agent (facoltativo)'),
+      'TiviMate/5.0',
+    );
+    await tester.pumpAndSettle();
+
+    // Toccarlo e' un cambio di sorgente: e' il motivo per cui lo si tocca.
+    expect(find.textContaining('riscaricati e sostituiti'), findsOneWidget);
+  });
+
+  testWidgets('un campo User-Agent vuoto resta null in tabella', (
+    tester,
+  ) async {
+    final db = await seed(scaricata);
+    addTearDown(db.close);
+    await pump(tester, db, scaricata);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Lista remota'),
+      'Rinominata',
+    );
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    final saved = await db.select(db.playlists).getSingle();
+    expect(saved.name, 'Rinominata');
+    // null significa "usa il default dell'app": cambiarlo un domani deve
+    // valere anche per le liste gia' importate.
+    expect(saved.userAgent, isNull);
   });
 }

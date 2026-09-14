@@ -63,13 +63,21 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
       await _createFts(this);
+    },
+    // v2: `playlists.user_agent`, per i provider che pretendono una stringa
+    // propria. `addColumn` non tocca `channels` né i trigger FTS, quindi non
+    // serve rieseguire `_createFts` — e `test/migration_test.dart` fissa
+    // proprio questo, perché è il dettaglio che una migrazione futura
+    // dimenticherebbe.
+    onUpgrade: (m, from, to) async {
+      if (from < 2) await m.addColumn(playlists, playlists.userAgent);
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
