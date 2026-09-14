@@ -216,7 +216,9 @@ void main() {
       await prog('adesso', Duration.zero);
       await prog('domani', const Duration(days: 1));
 
-      final removed = await db.purgeOldProgrammes();
+      // Stesso `now` con cui sono stati costruiti i programmi: altrimenti il
+      // taglio userebbe un istante diverso da quello del fixture.
+      final removed = await db.purgeOldProgrammes(now: now);
       expect(
         removed,
         1,

@@ -176,8 +176,16 @@ class AppDatabase extends _$AppDatabase {
   /// Applica la retention window all'EPG.
   ///
   /// Da chiamare a ogni sync: senza, il database cresce indefinitamente.
-  Future<int> purgeOldProgrammes({Duration keep = const Duration(days: 1)}) {
-    final cutoff = DateTime.now().toUtc().subtract(keep);
+  ///
+  /// [now] è il riferimento temporale. Chi importa ne ha già uno e **deve**
+  /// passarlo: se qui si leggesse l'orologio di sistema, il purge userebbe un
+  /// istante diverso da quello con cui i programmi sono stati filtrati, e
+  /// cancellerebbe righe appena inserite.
+  Future<int> purgeOldProgrammes({
+    Duration keep = const Duration(days: 1),
+    DateTime? now,
+  }) {
+    final cutoff = (now ?? DateTime.now()).toUtc().subtract(keep);
     return (delete(
       programmes,
     )..where((p) => p.stopUtc.isSmallerThanValue(cutoff))).go();
