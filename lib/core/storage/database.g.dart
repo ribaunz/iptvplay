@@ -82,6 +82,17 @@ class $PlaylistsTable extends Playlists
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _userAgentMeta = const VerificationMeta(
+    'userAgent',
+  );
+  @override
+  late final GeneratedColumn<String> userAgent = GeneratedColumn<String>(
+    'user_agent',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _epgUrlMeta = const VerificationMeta('epgUrl');
   @override
   late final GeneratedColumn<String> epgUrl = GeneratedColumn<String>(
@@ -138,6 +149,7 @@ class $PlaylistsTable extends Playlists
     host,
     port,
     username,
+    userAgent,
     epgUrl,
     lastSyncAt,
     channelCount,
@@ -188,6 +200,12 @@ class $PlaylistsTable extends Playlists
       context.handle(
         _usernameMeta,
         username.isAcceptableOrUnknown(data['username']!, _usernameMeta),
+      );
+    }
+    if (data.containsKey('user_agent')) {
+      context.handle(
+        _userAgentMeta,
+        userAgent.isAcceptableOrUnknown(data['user_agent']!, _userAgentMeta),
       );
     }
     if (data.containsKey('epg_url')) {
@@ -259,6 +277,10 @@ class $PlaylistsTable extends Playlists
         DriftSqlType.string,
         data['${effectivePrefix}username'],
       ),
+      userAgent: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_agent'],
+      ),
       epgUrl: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}epg_url'],
@@ -297,6 +319,13 @@ class Playlist extends DataClass implements Insertable<Playlist> {
   final String? host;
   final int? port;
   final String? username;
+
+  /// `User-Agent` con cui contattare questo provider.
+  ///
+  /// `null` significa "usa il default dell'app", non "non mandare nulla":
+  /// esiste per i pannelli che pretendono una stringa propria, che né VLC né un
+  /// browser coprono.
+  final String? userAgent;
   final String? epgUrl;
   final DateTime? lastSyncAt;
   final int channelCount;
@@ -309,6 +338,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     this.host,
     this.port,
     this.username,
+    this.userAgent,
     this.epgUrl,
     this.lastSyncAt,
     required this.channelCount,
@@ -336,6 +366,9 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     if (!nullToAbsent || username != null) {
       map['username'] = Variable<String>(username);
     }
+    if (!nullToAbsent || userAgent != null) {
+      map['user_agent'] = Variable<String>(userAgent);
+    }
     if (!nullToAbsent || epgUrl != null) {
       map['epg_url'] = Variable<String>(epgUrl);
     }
@@ -358,6 +391,9 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       username: username == null && nullToAbsent
           ? const Value.absent()
           : Value(username),
+      userAgent: userAgent == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userAgent),
       epgUrl: epgUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(epgUrl),
@@ -384,6 +420,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       host: serializer.fromJson<String?>(json['host']),
       port: serializer.fromJson<int?>(json['port']),
       username: serializer.fromJson<String?>(json['username']),
+      userAgent: serializer.fromJson<String?>(json['userAgent']),
       epgUrl: serializer.fromJson<String?>(json['epgUrl']),
       lastSyncAt: serializer.fromJson<DateTime?>(json['lastSyncAt']),
       channelCount: serializer.fromJson<int>(json['channelCount']),
@@ -403,6 +440,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       'host': serializer.toJson<String?>(host),
       'port': serializer.toJson<int?>(port),
       'username': serializer.toJson<String?>(username),
+      'userAgent': serializer.toJson<String?>(userAgent),
       'epgUrl': serializer.toJson<String?>(epgUrl),
       'lastSyncAt': serializer.toJson<DateTime?>(lastSyncAt),
       'channelCount': serializer.toJson<int>(channelCount),
@@ -418,6 +456,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     Value<String?> host = const Value.absent(),
     Value<int?> port = const Value.absent(),
     Value<String?> username = const Value.absent(),
+    Value<String?> userAgent = const Value.absent(),
     Value<String?> epgUrl = const Value.absent(),
     Value<DateTime?> lastSyncAt = const Value.absent(),
     int? channelCount,
@@ -430,6 +469,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     host: host.present ? host.value : this.host,
     port: port.present ? port.value : this.port,
     username: username.present ? username.value : this.username,
+    userAgent: userAgent.present ? userAgent.value : this.userAgent,
     epgUrl: epgUrl.present ? epgUrl.value : this.epgUrl,
     lastSyncAt: lastSyncAt.present ? lastSyncAt.value : this.lastSyncAt,
     channelCount: channelCount ?? this.channelCount,
@@ -444,6 +484,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       host: data.host.present ? data.host.value : this.host,
       port: data.port.present ? data.port.value : this.port,
       username: data.username.present ? data.username.value : this.username,
+      userAgent: data.userAgent.present ? data.userAgent.value : this.userAgent,
       epgUrl: data.epgUrl.present ? data.epgUrl.value : this.epgUrl,
       lastSyncAt: data.lastSyncAt.present
           ? data.lastSyncAt.value
@@ -465,6 +506,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
           ..write('host: $host, ')
           ..write('port: $port, ')
           ..write('username: $username, ')
+          ..write('userAgent: $userAgent, ')
           ..write('epgUrl: $epgUrl, ')
           ..write('lastSyncAt: $lastSyncAt, ')
           ..write('channelCount: $channelCount, ')
@@ -482,6 +524,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     host,
     port,
     username,
+    userAgent,
     epgUrl,
     lastSyncAt,
     channelCount,
@@ -498,6 +541,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
           other.host == this.host &&
           other.port == this.port &&
           other.username == this.username &&
+          other.userAgent == this.userAgent &&
           other.epgUrl == this.epgUrl &&
           other.lastSyncAt == this.lastSyncAt &&
           other.channelCount == this.channelCount &&
@@ -512,6 +556,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
   final Value<String?> host;
   final Value<int?> port;
   final Value<String?> username;
+  final Value<String?> userAgent;
   final Value<String?> epgUrl;
   final Value<DateTime?> lastSyncAt;
   final Value<int> channelCount;
@@ -524,6 +569,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     this.host = const Value.absent(),
     this.port = const Value.absent(),
     this.username = const Value.absent(),
+    this.userAgent = const Value.absent(),
     this.epgUrl = const Value.absent(),
     this.lastSyncAt = const Value.absent(),
     this.channelCount = const Value.absent(),
@@ -537,6 +583,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     this.host = const Value.absent(),
     this.port = const Value.absent(),
     this.username = const Value.absent(),
+    this.userAgent = const Value.absent(),
     this.epgUrl = const Value.absent(),
     this.lastSyncAt = const Value.absent(),
     this.channelCount = const Value.absent(),
@@ -551,6 +598,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     Expression<String>? host,
     Expression<int>? port,
     Expression<String>? username,
+    Expression<String>? userAgent,
     Expression<String>? epgUrl,
     Expression<DateTime>? lastSyncAt,
     Expression<int>? channelCount,
@@ -564,6 +612,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
       if (host != null) 'host': host,
       if (port != null) 'port': port,
       if (username != null) 'username': username,
+      if (userAgent != null) 'user_agent': userAgent,
       if (epgUrl != null) 'epg_url': epgUrl,
       if (lastSyncAt != null) 'last_sync_at': lastSyncAt,
       if (channelCount != null) 'channel_count': channelCount,
@@ -579,6 +628,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     Value<String?>? host,
     Value<int?>? port,
     Value<String?>? username,
+    Value<String?>? userAgent,
     Value<String?>? epgUrl,
     Value<DateTime?>? lastSyncAt,
     Value<int>? channelCount,
@@ -592,6 +642,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
       host: host ?? this.host,
       port: port ?? this.port,
       username: username ?? this.username,
+      userAgent: userAgent ?? this.userAgent,
       epgUrl: epgUrl ?? this.epgUrl,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       channelCount: channelCount ?? this.channelCount,
@@ -625,6 +676,9 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     if (username.present) {
       map['username'] = Variable<String>(username.value);
     }
+    if (userAgent.present) {
+      map['user_agent'] = Variable<String>(userAgent.value);
+    }
     if (epgUrl.present) {
       map['epg_url'] = Variable<String>(epgUrl.value);
     }
@@ -650,6 +704,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
           ..write('host: $host, ')
           ..write('port: $port, ')
           ..write('username: $username, ')
+          ..write('userAgent: $userAgent, ')
           ..write('epgUrl: $epgUrl, ')
           ..write('lastSyncAt: $lastSyncAt, ')
           ..write('channelCount: $channelCount, ')
@@ -3400,6 +3455,7 @@ typedef $$PlaylistsTableCreateCompanionBuilder = PlaylistsCompanion Function({
   Value<String?> host,
   Value<int?> port,
   Value<String?> username,
+  Value<String?> userAgent,
   Value<String?> epgUrl,
   Value<DateTime?> lastSyncAt,
   Value<int> channelCount,
@@ -3413,6 +3469,7 @@ typedef $$PlaylistsTableUpdateCompanionBuilder = PlaylistsCompanion Function({
   Value<String?> host,
   Value<int?> port,
   Value<String?> username,
+  Value<String?> userAgent,
   Value<String?> epgUrl,
   Value<DateTime?> lastSyncAt,
   Value<int> channelCount,
@@ -3522,6 +3579,11 @@ class $$PlaylistsTableFilterComposer
 
   ColumnFilters<String> get username => $composableBuilder(
     column: $table.username,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userAgent => $composableBuilder(
+    column: $table.userAgent,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3665,6 +3727,11 @@ class $$PlaylistsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get userAgent => $composableBuilder(
+    column: $table.userAgent,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get epgUrl => $composableBuilder(
     column: $table.epgUrl,
     builder: (column) => ColumnOrderings(column),
@@ -3715,6 +3782,9 @@ class $$PlaylistsTableAnnotationComposer
 
   GeneratedColumn<String> get username =>
       $composableBuilder(column: $table.username, builder: (column) => column);
+
+  GeneratedColumn<String> get userAgent =>
+      $composableBuilder(column: $table.userAgent, builder: (column) => column);
 
   GeneratedColumn<String> get epgUrl =>
       $composableBuilder(column: $table.epgUrl, builder: (column) => column);
@@ -3847,6 +3917,7 @@ class $$PlaylistsTableTableManager
                 Value<String?> host = const Value.absent(),
                 Value<int?> port = const Value.absent(),
                 Value<String?> username = const Value.absent(),
+                Value<String?> userAgent = const Value.absent(),
                 Value<String?> epgUrl = const Value.absent(),
                 Value<DateTime?> lastSyncAt = const Value.absent(),
                 Value<int> channelCount = const Value.absent(),
@@ -3859,6 +3930,7 @@ class $$PlaylistsTableTableManager
                 host: host,
                 port: port,
                 username: username,
+                userAgent: userAgent,
                 epgUrl: epgUrl,
                 lastSyncAt: lastSyncAt,
                 channelCount: channelCount,
@@ -3873,6 +3945,7 @@ class $$PlaylistsTableTableManager
                 Value<String?> host = const Value.absent(),
                 Value<int?> port = const Value.absent(),
                 Value<String?> username = const Value.absent(),
+                Value<String?> userAgent = const Value.absent(),
                 Value<String?> epgUrl = const Value.absent(),
                 Value<DateTime?> lastSyncAt = const Value.absent(),
                 Value<int> channelCount = const Value.absent(),
@@ -3885,6 +3958,7 @@ class $$PlaylistsTableTableManager
                 host: host,
                 port: port,
                 username: username,
+                userAgent: userAgent,
                 epgUrl: epgUrl,
                 lastSyncAt: lastSyncAt,
                 channelCount: channelCount,

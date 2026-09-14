@@ -3,10 +3,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 
 import '../../../app/providers.dart';
 import '../../../core/net/network_gateway.dart';
+import '../../../core/net/user_agents.dart';
 import '../../../core/net/web_capability.dart';
 import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
@@ -43,6 +43,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
   final _host = TextEditingController();
   final _user = TextEditingController();
   final _pass = TextEditingController();
+  final _userAgent = TextEditingController();
 
   /// File scelto in modifica. `null` significa "lascia stare i canali".
   PlatformFile? _pickedFile;
@@ -52,6 +53,15 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
   String? _error;
 
   bool get _isEdit => widget.editing != null;
+
+  /// Lo User-Agent scelto per questa lista, o `null` per il default dell'app.
+  ///
+  /// Campo vuoto significa "non ho preferenze", non "non mandare nulla": chi
+  /// non sa cosa sia uno User-Agent deve comunque ottenere quello che funziona.
+  String? get _chosenUserAgent {
+    final v = _userAgent.text.trim();
+    return v.isEmpty ? UserAgents.vlc : v;
+  }
 
   @override
   void initState() {
@@ -63,6 +73,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     }
 
     _name.text = p.name;
+    _userAgent.text = p.userAgent ?? '';
     switch (p.type) {
       case PlaylistType.xtream:
         _kind = _SourceKind.xtream;
@@ -101,7 +112,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _url, _host, _user, _pass]) {
+    for (final c in [_name, _url, _host, _user, _pass, _userAgent]) {
       c.dispose();
     }
     super.dispose();
@@ -115,6 +126,13 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
   bool get _willReimport {
     final p = widget.editing;
     if (p == null) return true;
+    // Cambiare lo User-Agent è un cambio di sorgente a tutti gli effetti: è
+    // *il* motivo per cui lo si tocca — l'import era stato rifiutato e si
+    // riprova con un'altra presentazione.
+    if (_kind != _SourceKind.m3uFile &&
+        _userAgent.text.trim() != (p.userAgent ?? '')) {
+      return true;
+    }
     switch (_kind) {
       case _SourceKind.m3uUrl:
         return p.type != PlaylistType.m3u || _url.text.trim() != (p.url ?? '');
@@ -225,6 +243,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
             ),
           ),
           ..._diagnosisFor(_url.text),
+          ..._userAgentField(),
         ];
 
       case _SourceKind.m3uFile:
@@ -294,8 +313,37 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
             ),
           ),
           ..._diagnosisFor(_host.text),
+          ..._userAgentField(),
         ];
     }
+  }
+
+  /// Campo per lo `User-Agent`, sotto le sorgenti che passano dalla rete.
+  ///
+  /// Esiste per i pannelli che pretendono una stringa propria, che né VLC né un
+  /// browser coprono: senza, quegli utenti restano bloccati sul 403 e non hanno
+  /// alcuna leva. Facoltativo di proposito — chi non sa cosa sia deve poterlo
+  /// ignorare e ottenere comunque il valore che funziona quasi sempre.
+  List<Widget> _userAgentField() {
+    return [
+      const SizedBox(height: Gap.md),
+      TextField(
+        controller: _userAgent,
+        // Su web l'header viene scartato dal browser: lasciarlo modificabile
+        // prometterebbe un effetto che non c'è.
+        enabled: !_busy && !kIsWeb,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          labelText: 'User-Agent (facoltativo)',
+          hintText: UserAgents.vlc,
+          helperText: kIsWeb
+              ? 'Nel browser lo decide il browser: non è modificabile.'
+              : 'Lascialo vuoto se non sai cos\'è. Serve solo se il provider '
+                    'rifiuta la lista con un 403.',
+          helperMaxLines: 3,
+        ),
+      ),
+    ];
   }
 
   /// Diagnosi **prima** del tentativo.
@@ -454,6 +502,9 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     final name = _name.text.trim().isEmpty
         ? (host ?? url ?? 'Lista senza nome')
         : _name.text.trim();
+    // Si salva solo la scelta esplicita: il default dell'app resta `null`, cosi'
+    // cambiarlo un domani vale anche per le liste gia' importate.
+    final ua = _userAgent.text.trim();
 
     final editing = widget.editing;
     if (editing != null) {
@@ -467,6 +518,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
           host: Value(host),
           port: Value(port),
           username: Value(username),
+          userAgent: Value(ua.isEmpty ? null : ua),
         ),
       );
       return editing.id;
@@ -482,6 +534,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
             host: Value(host),
             port: Value(port),
             username: Value(username),
+            userAgent: Value(ua.isEmpty ? null : ua),
           ),
         );
   }
@@ -495,7 +548,10 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     }
 
     setState(() => _progress = 'Scarico la playlist');
-    final gateway = NetworkGateway(pageOriginOrNull: kIsWeb ? Uri.base : null);
+    final gateway = NetworkGateway(
+      pageOriginOrNull: kIsWeb ? Uri.base : null,
+      userAgent: _chosenUserAgent,
+    );
     try {
       // Prima si apre lo stream, poi si scrive: se l'indirizzo è
       // irraggiungibile i canali già presenti non vengono toccati.
@@ -540,7 +596,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
     }
 
     setState(() => _progress = 'Verifico le credenziali');
-    final client = XtreamClient(creds);
+    final client = XtreamClient(creds, userAgent: _chosenUserAgent);
     try {
       final account = await client.login();
       if (account.isExpired) {
@@ -559,15 +615,17 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
       // Si importa la M3U del portale: contiene già gruppi e attributi tvg-*,
       // ed evita centinaia di chiamate all'API per costruire lo stesso elenco.
       setState(() => _progress = 'Scarico i canali');
-      final http.Client raw = http.Client();
+      // Dal gateway come tutto il resto: e' lui a mettere lo User-Agent e a
+      // ritentare sul 403. Un client grezzo qui si ripresentava come Dart e
+      // riproduceva il bug dall'altra porta.
+      final gateway = NetworkGateway(
+        pageOriginOrNull: kIsWeb ? Uri.base : null,
+        userAgent: _chosenUserAgent,
+      );
       try {
-        final res = await raw.send(http.Request('GET', client.m3uUrl()));
-        if (res.statusCode != 200) {
-          throw 'Il portale ha risposto ${res.statusCode} alla richiesta della playlist.';
-        }
-        await _runImport(id, res.stream);
+        await _runImport(id, await gateway.openStream(client.m3uUrl()));
       } finally {
-        raw.close();
+        gateway.close();
       }
     } finally {
       client.close();

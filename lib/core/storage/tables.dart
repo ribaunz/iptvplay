@@ -23,6 +23,13 @@ class Playlists extends Table {
   IntColumn get port => integer().nullable()();
   TextColumn get username => text().nullable()();
 
+  /// `User-Agent` con cui contattare questo provider.
+  ///
+  /// `null` significa "usa il default dell'app", non "non mandare nulla":
+  /// esiste per i pannelli che pretendono una stringa propria, che né VLC né un
+  /// browser coprono.
+  TextColumn get userAgent => text().nullable()();
+
   TextColumn get epgUrl => text().nullable()();
   DateTimeColumn get lastSyncAt => dateTime().nullable()();
   IntColumn get channelCount => integer().withDefault(const Constant(0))();
