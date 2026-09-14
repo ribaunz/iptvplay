@@ -1100,6 +1100,32 @@ Per iOS: pinna Xcode con `maxim-lobanov/setup-xcode` (**Xcode 26+ è obbligatori
 
 > ⚠️ I package `media_kit_libs_*` sono **stub da 3-5 KB che scaricano le librerie native a build time** (Maven, GitHub releases, CocoaPods). Questo rende le build **non riproducibili** e la CI fragile se la rete o GitHub sono giù. Prevedi un mirror o una cache locale degli artefatti nativi.
 
+### Provare su iOS senza un Mac
+
+Trovato il 14 settembre 2026, partendo da una domanda pratica: come si testa iOS lavorando da Windows.
+
+Il job iOS della CI produce due artefatti scaricabili:
+
+- **`ios-unsigned-ipa`** — un `.ipa` **non firmato**. Un ipa è solo uno zip con l'app dentro una cartella `Payload/`, quindi si può impacchettare senza certificati. Su Windows lo si rifirma e installa sull'iPhone via USB con **Sideloadly** o **AltStore**, usando un Apple ID qualunque. **È l'unica via che non richiede un Mac.** Con un account gratuito il profilo dura **7 giorni**, poi va rifatto; con l'Apple Developer Program dura un anno.
+- **`ios-simulator`** — il bundle per il Simulatore, per chi un Mac ce l'ha: `xcrun simctl install booted Runner.app`.
+
+`xcodebuild -exportArchive` non è un'alternativa per il primo caso: pretende certificati e profili, che è esattamente ciò che non c'è in CI.
+
+**Cosa non si riesce a provare comunque, e perché:**
+
+| | Simulatore | Sideload con Apple ID gratuito |
+|---|---|---|
+| Interfaccia, import liste, navigazione | sì | sì |
+| Riproduzione video | no — libmpv in simulatore è inaffidabile | sì |
+| Trasmissione al televisore | no — niente multicast | **no**, vedi sotto |
+
+La **trasmissione al televisore non funziona su iOS** in nessuno dei due casi, e non è un limite del test ma dell'app. La scoperta usa SSDP, cioè un datagramma verso `239.255.255.250:1900`, e da iOS 14 il multicast richiede l'entitlement `com.apple.developer.networking.multicast`. Apple lo concede **solo su richiesta motivata** e **solo** a un account iscritto al Developer Program: con un Apple ID gratuito il profilo non lo contiene. Il divieto è silenzioso — il socket si apre, i pacchetti partono, non risponde nessuno.
+
+`ios/Runner/Runner.entitlements` esiste già ma **non è collegato al target**, di proposito: finché l'entitlement non è approvato può solo far fallire una firma, e non può far funzionare nulla. Il file spiega dentro di sé come attivarlo. Le chiavi `NSLocalNetworkUsageDescription` e `NSBonjourServices` sono invece già nell'`Info.plist`: senza, iOS non mostra nemmeno il prompt di accesso alla rete locale.
+
+> Il job iOS è `continue-on-error: true` perché `media_kit_libs_ios_video` è fermo a settembre 2023 (issue media-kit#1418, build iOS rotta da Flutter 3.44). Passa oggi, ma può smettere senza che nessuno abbia toccato il codice — vedi §12.
+
+
 ### Note store
 
 Sintesi delle policy verificate; la decisione sulla pubblicazione è rimandata.
