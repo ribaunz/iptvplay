@@ -21,6 +21,24 @@
 		<true/>
 	</dict>
 	<!--
+		Rete locale: la trasmissione al televisore scopre i dispositivi con SSDP,
+		cioè un datagramma verso 239.255.255.250:1900. Da iOS 14 il sistema
+		blocca ogni traffico verso la LAN finché l'utente non acconsente, e il
+		prompt non compare affatto se manca questa descrizione — la scoperta
+		fallirebbe in silenzio, trovando zero dispositivi.
+
+		NSBonjourServices dichiara i servizi cercati. La scoperta vera passa da
+		SSDP, non da Bonjour, ma senza questa chiave iOS non considera legittimo
+		l'accesso alla rete locale.
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Serve a trovare i televisori e i dispositivi compatibili sulla tua rete, per trasmettere quello che stai guardando.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_googlecast._tcp</string>
+		<string>_airplay._tcp</string>
+	</array>
+	<!--
 		Consente all'audio di proseguire a schermo spento. Il VIDEO in background
 		non è permesso se non via Picture in Picture, che richiede a sua volta
 		questo background mode.

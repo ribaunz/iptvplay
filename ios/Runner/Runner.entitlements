@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+		Multicast: la scoperta dei televisori usa SSDP, cioè un datagramma UDP
+		verso il gruppo 239.255.255.250:1900. Da iOS 14 il multicast e il
+		broadcast sono vietati senza questo entitlement, e il divieto è
+		silenzioso: il socket si apre, i pacchetti partono, nessuno risponde.
+
+		NON basta dichiararlo qui. Apple lo concede su richiesta motivata
+		(modulo "Multicast Networking Entitlement Request"), e solo a un account
+		iscritto all'Apple Developer Program: con un Apple ID gratuito il profilo
+		non lo contiene e la firma fallisce.
+
+		Di conseguenza, oggi:
+
+		1. build in CI senza firma: il file non viene applicato, non rompe nulla;
+		2. sideload con Sideloadly o AltStore e Apple ID gratuito: l'entitlement
+		   non finisce nell'app, e la trasmissione al televisore non funziona;
+		3. account a pagamento con entitlement approvato: funziona.
+
+		Questo file NON è ancora collegato al target Xcode, di proposito: finché
+		l'entitlement non è approvato può solo rompere una firma, e non può far
+		funzionare nulla. Per attivarlo il giorno dell'approvazione basta una
+		riga per configurazione in ios/Runner.xcodeproj/project.pbxproj:
+
+		    CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+
+		oppure, in Xcode: target Runner, scheda "Signing &amp; Capabilities",
+		pulsante "+ Capability", voce "Multicast Networking".
+
+		Nota per chi modifica questo commento: un commento XML non può contenere
+		due trattini di fila. Il job iOS lo verifica con plutil, quindi un errore
+		qui fa fallire la CI invece di restare latente.
+	-->
+	<key>com.apple.developer.networking.multicast</key>
+	<true/>
+</dict>
+</plist>
