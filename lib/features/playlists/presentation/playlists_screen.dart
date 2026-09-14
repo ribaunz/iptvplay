@@ -49,6 +49,12 @@ class PlaylistsScreen extends ConsumerWidget {
         .push(MaterialPageRoute(builder: (_) => const AddPlaylistScreen()));
   }
 
+  /// Riapre il form di aggiunta, stavolta compilato con i dati della lista.
+  void _edit(BuildContext context, Playlist p) {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => AddPlaylistScreen(editing: p)));
+  }
+
   /// Primo avvio: una schermata vuota è un invito ad agire, non un vicolo cieco.
   Widget _firstRun(BuildContext context) {
     return Center(
@@ -127,11 +133,25 @@ class PlaylistsScreen extends ConsumerWidget {
                   icon: const Icon(Icons.more_vert_rounded, size: 20),
                   color: AppColors.panel,
                   onSelected: (v) async {
+                    if (v == 'edit') {
+                      _edit(context, p);
+                      return;
+                    }
                     if (v == 'delete' && await _confirmDelete(context, p)) {
                       await _delete(ref, p.id);
                     }
                   },
                   itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_outlined, size: 18),
+                          SizedBox(width: Gap.md),
+                          Text('Modifica lista'),
+                        ],
+                      ),
+                    ),
                     PopupMenuItem(
                       value: 'delete',
                       child: Row(
