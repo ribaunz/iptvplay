@@ -9,6 +9,7 @@ import '../../../app/providers.dart';
 import '../../../app/settings.dart';
 import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
+import '../../../core/ui/fullscreen.dart';
 import '../../cast/data/cast_service.dart';
 import '../../cast/presentation/cast_sheet.dart';
 import '../player_backend.dart';
@@ -95,6 +96,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// mentre tutto funziona. Senza questa distinzione il player
   /// riconnetterebbe in continuazione un canale sano.
   bool _sawProgress = false;
+
+  /// Trascinamento della barra in corso.
+  ///
+  /// Mentre il dito e' giu' la barra segue il dito e **non** lo stato del
+  /// backend: altrimenti ogni aggiornamento di posizione la riporterebbe
+  /// indietro sotto le dita.
+  bool _scrubbing = false;
+  Duration _scrubTarget = Duration.zero;
+
+  bool _fullscreen = false;
 
   CastStatus _cast = const CastStatus(state: CastState.idle);
   StreamSubscription<CastStatus>? _castSub;
@@ -357,6 +368,45 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     ref.read(settingsProvider.notifier).setAutoReconnect(false);
   }
 
+  /// Schermo intero: via la cornice della finestra, e di nuovo indietro.
+  ///
+  /// Lo stato si rilegge invece di ricordarlo, perche' si puo' uscire anche da
+  /// fuori — il tasto Esc del browser, o il gestore di finestre del sistema.
+  Future<void> _toggleFullscreen() async {
+    if (!Fullscreen.isSupported) return;
+    await Fullscreen.toggle();
+    if (!mounted) return;
+    // Si rilegge invece di fidarsi del valore chiesto: il browser puo'
+    // rifiutare, e il sistema puo' uscire per conto suo. L'icona deve dire
+    // com'e' adesso, non cosa si era chiesto.
+    final actual = await Fullscreen.isOn();
+    if (!mounted) return;
+    setState(() => _fullscreen = actual);
+    _scheduleHide();
+  }
+
+  /// Sposta la riproduzione di [delta], dove spostarsi ha senso.
+  void _nudgePosition(Duration delta) {
+    final total = _state.duration;
+    if (total <= Duration.zero) return;
+    var target = _state.position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > total) target = total;
+    _seekTo(target);
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
+  Future<void> _seekTo(Duration target) async {
+    // La posizione di riferimento va riportata indietro con la riproduzione:
+    // altrimenti, dopo un salto all'indietro, nessun aggiornamento risulta un
+    // avanzamento finche' il flusso non ha ripreso il punto di prima.
+    _lastPosition = target;
+    _tickPosition = target;
+    _stallTicks = 0;
+    await _backend?.seek(target);
+  }
+
   void _scheduleHide() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 4), () {
@@ -408,38 +458,56 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             case LogicalKeyboardKey.keyM:
               ref.read(settingsProvider.notifier).toggleMuted();
               return KeyEventResult.handled;
+            case LogicalKeyboardKey.keyF:
+              _toggleFullscreen();
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.arrowRight:
+              _nudgePosition(const Duration(seconds: 10));
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.arrowLeft:
+              _nudgePosition(const Duration(seconds: -10));
+              return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
         },
-        child: GestureDetector(
-          onTap: _toggleControls,
-          behavior: HitTestBehavior.opaque,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (_backend != null) _backend!.buildView(context),
-              if (_cast.isActive || _cast.state == CastState.connecting)
-                _castOverlay(),
-              if (_cast.state == CastState.error) _castErrorPanel(),
-              if (_finished) _finishedPanel(),
-              if (!_finished && _interrupted) _interruptionPanel(),
-              if (!_finished && !_interrupted && _failure != null)
-                _failurePanel(),
-              if (_failure == null &&
-                  !_interrupted &&
-                  !_finished &&
-                  _state.buffering)
-                _bufferingHint(),
-              AnimatedOpacity(
-                opacity: _controlsVisible ? 1 : 0,
-                duration: const Duration(milliseconds: 180),
-                child: IgnorePointer(
-                  ignoring: !_controlsVisible,
-                  child: _controls(),
-                ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // I gesti stanno **sotto** ai comandi, non attorno a tutto: un
+            // riconoscitore di doppio tocco in cima allo stack terrebbe aperta
+            // l'arena per 300 ms a ogni clic, e ogni pulsante del player
+            // risponderebbe in ritardo in attesa di un secondo clic che quasi
+            // mai arriva.
+            GestureDetector(
+              onTap: _toggleControls,
+              // Registrato solo dove lo schermo intero esiste davvero.
+              onDoubleTap: Fullscreen.isSupported ? _toggleFullscreen : null,
+              behavior: HitTestBehavior.opaque,
+              child:
+                  _backend?.buildView(context) ??
+                  const ColoredBox(color: Colors.black),
+            ),
+            if (_cast.isActive || _cast.state == CastState.connecting)
+              _castOverlay(),
+            if (_cast.state == CastState.error) _castErrorPanel(),
+            if (_finished) _finishedPanel(),
+            if (!_finished && _interrupted) _interruptionPanel(),
+            if (!_finished && !_interrupted && _failure != null)
+              _failurePanel(),
+            if (_failure == null &&
+                !_interrupted &&
+                !_finished &&
+                _state.buffering)
+              _bufferingHint(),
+            AnimatedOpacity(
+              opacity: _controlsVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 180),
+              child: IgnorePointer(
+                ignoring: !_controlsVisible,
+                child: _controls(),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -812,52 +880,75 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           colors: [Colors.black.withValues(alpha: 0.8), Colors.transparent],
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            iconSize: 34,
-            onPressed: () =>
-                _state.playing ? _backend?.pause() : _backend?.play(),
-            icon: Icon(
-              _state.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-            ),
-            tooltip: _state.playing ? 'Metti in pausa' : 'Riprendi',
-          ),
-          const SizedBox(width: Gap.md),
-          Flexible(
-            child: Text(
-              _state.isLive ? 'In diretta' : _elapsed(),
-              maxLines: 1,
-              overflow: TextOverflow.clip,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.muted,
-                fontFeatures: [kTabular],
-              ),
-            ),
-          ),
-          const Spacer(),
-          _volumeControl(showFader: roomForFader),
-          _autoReconnectButton(),
-          // Su web non esiste un secondo motore da scegliere: fvp e
-          // media_kit sono entrambi nativi. Mostrare il comando
-          // prometterebbe un rimedio che li' non c'e'.
-          if (!kIsWeb) ...[
-            if (roomForFader)
-              Flexible(
-                child: Text(
-                  ref.watch(playerBackendProvider).name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+          _timeline(),
+          Row(
+            children: [
+              IconButton(
+                iconSize: 34,
+                onPressed: () =>
+                    _state.playing ? _backend?.pause() : _backend?.play(),
+                icon: Icon(
+                  _state.playing
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
                 ),
+                tooltip: _state.playing ? 'Metti in pausa' : 'Riprendi',
               ),
-            IconButton(
-              onPressed: _switchBackend,
-              icon: const Icon(Icons.tune_rounded, size: 20),
-              tooltip: 'Cambia motore di riproduzione',
-            ),
-          ],
+              const SizedBox(width: Gap.md),
+              // I tempi stanno sotto la barra: qui resterebbero ripetuti. In
+              // diretta la barra puo' non esserci, e allora lo stato va detto.
+              if (_state.isLive)
+                const Flexible(
+                  child: Text(
+                    'In diretta',
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    style: TextStyle(fontSize: 13, color: AppColors.muted),
+                  ),
+                ),
+              const Spacer(),
+              _volumeControl(showFader: roomForFader),
+              _autoReconnectButton(),
+              // Su web non esiste un secondo motore da scegliere: fvp e
+              // media_kit sono entrambi nativi. Mostrare il comando
+              // prometterebbe un rimedio che li' non c'e'.
+              if (!kIsWeb) ...[
+                if (roomForFader)
+                  Flexible(
+                    child: Text(
+                      ref.watch(playerBackendProvider).name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                IconButton(
+                  onPressed: _switchBackend,
+                  icon: const Icon(Icons.tune_rounded, size: 20),
+                  tooltip: 'Cambia motore di riproduzione',
+                ),
+              ],
+              if (Fullscreen.isSupported)
+                IconButton(
+                  onPressed: _toggleFullscreen,
+                  icon: Icon(
+                    _fullscreen
+                        ? Icons.fullscreen_exit_rounded
+                        : Icons.fullscreen_rounded,
+                    size: 20,
+                  ),
+                  tooltip: _fullscreen
+                      ? 'Esci da schermo intero'
+                      : 'Schermo intero (doppio clic)',
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -948,12 +1039,172 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  String _elapsed() {
-    String two(int v) => v.toString().padLeft(2, '0');
-    final p = _state.position;
-    final d = _state.duration;
-    return '${two(p.inMinutes)}:${two(p.inSeconds % 60)} / '
-        '${two(d.inMinutes)}:${two(d.inSeconds % 60)}';
+  /// La barra di avanzamento.
+  ///
+  /// Due cose diverse con lo stesso segno, perche' «a che punto sono» vuol dire
+  /// due cose diverse:
+  ///
+  /// - su un contenuto a richiesta e' la posizione nel film, e si trascina;
+  /// - su una diretta la posizione nel flusso non significa niente (parte da
+  ///   zero quando apri il canale), mentre quello che conta e' **a che punto e'
+  ///   il programma in onda** — ed e' esattamente il filetto che la riga del
+  ///   canale mostra gia' in elenco.
+  ///
+  /// Senza durata e senza guida non si disegna nulla: una barra che non puo'
+  /// dire dove sei e' decorazione.
+  Widget _timeline() {
+    final total = _state.duration;
+    if (total > Duration.zero) return _seekBar(total);
+
+    final now = widget.now;
+    if (now == null) return const SizedBox.shrink();
+    final span = now.stopUtc.difference(now.startUtc).inSeconds;
+    if (span <= 0) return const SizedBox.shrink();
+
+    final elapsed = DateTime.now().toUtc().difference(now.startUtc).inSeconds;
+    return _barWithLabels(
+      fraction: (elapsed / span).clamp(0.0, 1.0),
+      buffered: 0,
+      left: _hhmm(now.startUtc),
+      right: _hhmm(now.stopUtc),
+      handle: false,
+    );
+  }
+
+  Widget _seekBar(Duration total) {
+    final position = _scrubbing ? _scrubTarget : _state.position;
+    final ms = total.inMilliseconds;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        void follow(double dx) {
+          final f = (dx / constraints.maxWidth).clamp(0.0, 1.0);
+          setState(() {
+            _scrubbing = true;
+            _scrubTarget = Duration(milliseconds: (ms * f).round());
+          });
+          _scheduleHide();
+        }
+
+        void commit() {
+          final target = _scrubTarget;
+          setState(() => _scrubbing = false);
+          _seekTo(target);
+        }
+
+        return GestureDetector(
+          // Opaco: l'area della barra deve catturare il tocco, altrimenti
+          // arriva al gesto che nasconde i comandi e la barra e' intoccabile.
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (e) => follow(e.localPosition.dx),
+          onTapUp: (_) => commit(),
+          onHorizontalDragStart: (e) => follow(e.localPosition.dx),
+          onHorizontalDragUpdate: (e) => follow(e.localPosition.dx),
+          onHorizontalDragEnd: (_) => commit(),
+          child: _barWithLabels(
+            fraction: (position.inMilliseconds / ms).clamp(0.0, 1.0),
+            buffered: (_state.buffered.inMilliseconds / ms).clamp(0.0, 1.0),
+            left: _clock(position),
+            right: _clock(total),
+            handle: true,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _barWithLabels({
+    required double fraction,
+    required double buffered,
+    required String left,
+    required String right,
+    required bool handle,
+  }) {
+    const labels = TextStyle(
+      fontSize: 12,
+      color: AppColors.muted,
+      fontFeatures: [kTabular],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Gap.sm),
+      child: Column(
+        children: [
+          SizedBox(
+            height: handle ? 16 : 6,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                // Bianco trasparente e non i filetti del tema: questa barra
+                // sta sopra il video, non sopra un pannello, e sotto puo'
+                // esserci qualunque immagine. I grigi tarati per i pannelli
+                // spariscono sul nero e urlano sul chiaro.
+                SizedBox(
+                  height: 3,
+                  width: double.infinity,
+                  child: ColoredBox(
+                    color: Colors.white.withValues(alpha: 0.25),
+                  ),
+                ),
+                // Quanto e' gia' scaricato: dice se spostarsi li' sara'
+                // immediato o costera' un'attesa.
+                FractionallySizedBox(
+                  widthFactor: buffered,
+                  child: SizedBox(
+                    height: 3,
+                    child: ColoredBox(
+                      color: Colors.white.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ),
+                FractionallySizedBox(
+                  widthFactor: fraction,
+                  child: const SizedBox(
+                    height: 3,
+                    child: ColoredBox(color: AppColors.tally),
+                  ),
+                ),
+                if (handle)
+                  Align(
+                    alignment: Alignment(fraction * 2 - 1, 0),
+                    child: Container(
+                      width: 4,
+                      height: 16,
+                      color: AppColors.text,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: Gap.xs),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(left, style: labels),
+              Text(right, style: labels),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _hhmm(DateTime utc) {
+    final t = utc.toLocal();
+    return '${_two(t.hour)}:${_two(t.minute)}';
+  }
+
+  static String _two(int v) => v.toString().padLeft(2, '0');
+
+  /// Durata leggibile: le ore compaiono solo quando ci sono.
+  ///
+  /// Un film dura piu' di un'ora, e `95:30` non e' un orario che qualcuno
+  /// legga come un'ora e trentacinque.
+  static String _clock(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    final sec = d.inSeconds % 60;
+    return h > 0 ? '$h:${_two(m)}:${_two(sec)}' : '${_two(m)}:${_two(sec)}';
   }
 }
 

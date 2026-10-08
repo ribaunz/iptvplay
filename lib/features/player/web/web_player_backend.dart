@@ -87,7 +87,13 @@ class WebPlayerBackend implements PlayerBackend {
       ..volume = _volume
       ..style.width = '100%'
       ..style.height = '100%'
-      ..style.backgroundColor = 'black';
+      ..style.backgroundColor = 'black'
+      // I clic devono attraversare il video e arrivare a Flutter: una
+      // `HtmlElementView` monta l'elemento **sopra** la tela, quindi senza
+      // questo i comandi disegnati dall'app non ricevono nulla e il doppio
+      // clic per lo schermo intero non arriva mai. L'app disegna i propri
+      // comandi, quindi al `<video>` i puntatori non servono.
+      ..style.pointerEvents = 'none';
     // `playsInline` evita che iOS apra il player a schermo intero di sistema.
     video.setAttribute('playsinline', 'true');
     _video = video;
@@ -142,6 +148,7 @@ class WebPlayerBackend implements PlayerBackend {
         videoSize: (w > 0 && h > 0) ? Size(w.toDouble(), h.toDouble()) : null,
         error: _state.error,
         ended: v.ended,
+        buffered: _bufferedEnd(v),
       ),
     );
   }
@@ -313,6 +320,23 @@ class WebPlayerBackend implements PlayerBackend {
         level: 'warn',
       );
     }
+  }
+
+  /// Fin dove arriva l'ultimo intervallo scaricato.
+  ///
+  /// `buffered` e' un `TimeRanges`, non un valore: con il seek i buchi sono la
+  /// norma, e quello che interessa e' il bordo destro dell'ultimo blocco.
+  static Duration _bufferedEnd(web.HTMLVideoElement v) {
+    final ranges = v.buffered;
+    if (ranges.length == 0) return Duration.zero;
+    final end = ranges.end(ranges.length - 1);
+    if (!end.isFinite) return Duration.zero;
+    return Duration(milliseconds: (end * 1000).round());
+  }
+
+  @override
+  Future<void> seek(Duration position) async {
+    _video?.currentTime = position.inMilliseconds / 1000;
   }
 
   @override
