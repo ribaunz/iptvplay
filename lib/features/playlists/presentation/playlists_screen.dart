@@ -6,6 +6,7 @@ import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
 import '../../../core/storage/tables.dart';
 import '../../channels/presentation/browse_screen.dart';
+import '../../epg/data/epg_service.dart';
 import 'add_playlist_screen.dart';
 
 /// Elenco delle liste configurate.
@@ -62,6 +63,7 @@ class PlaylistsScreen extends ConsumerWidget {
             lit: p.id == active,
             onOpen: () => _open(context, ref, p),
             onEdit: () => _edit(context, p),
+            onRefreshEpg: () => _refreshEpg(context, ref, p),
             onDelete: () async {
               if (await _confirmDelete(context, p)) await _delete(ref, p.id);
             },
@@ -100,6 +102,52 @@ class PlaylistsScreen extends ConsumerWidget {
   void _edit(BuildContext context, Playlist p) {
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => AddPlaylistScreen(editing: p)));
+  }
+
+  /// Riscarica la guida programmi di una lista.
+  ///
+  /// Separato dal reimport dei canali: la guida cambia ogni giorno, i canali
+  /// quasi mai, e riscaricare 50.000 canali per avere il palinsesto di domani
+  /// sarebbe sproporzionato. Per le liste M3U l'indirizzo e' salvato; per un
+  /// portale Xtream si ricava dalla URL del portale, senza mai scrivere la
+  /// password nel database.
+  Future<void> _refreshEpg(
+    BuildContext context,
+    WidgetRef ref,
+    Playlist p,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Scarico la guida programmi')),
+    );
+
+    try {
+      final result = await EpgService(ref.read(databaseProvider)).sync(p);
+      if (!context.mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result == null
+                ? 'Questa lista non dichiara una guida programmi.'
+                : '${result.programmesImported} programmi su '
+                      '${result.channelsImported} canali',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(content: Text('Guida non scaricata: ${_short(e)}')),
+      );
+    }
+  }
+
+  /// Un errore di rete in una snackbar deve stare su due righe, non su dieci.
+  static String _short(Object e) {
+    final s = e.toString();
+    return s.length > 160 ? '${s.substring(0, 157)}...' : s;
   }
 
   void _open(BuildContext context, WidgetRef ref, Playlist p) {
@@ -164,6 +212,7 @@ class _SourceStrip extends StatelessWidget {
     required this.lit,
     required this.onOpen,
     required this.onEdit,
+    required this.onRefreshEpg,
     required this.onDelete,
   });
 
@@ -171,6 +220,7 @@ class _SourceStrip extends StatelessWidget {
   final bool lit;
   final VoidCallback onOpen;
   final VoidCallback onEdit;
+  final VoidCallback onRefreshEpg;
   final Future<void> Function() onDelete;
 
   @override
@@ -288,6 +338,12 @@ class _SourceStrip extends StatelessWidget {
   Widget _menu() {
     // Menu esplicito: lo swipe da solo è una convenzione touch, e su desktop
     // nessuno prova a trascinare una riga per eliminarla.
+    //
+    // «Aggiorna guida» compare solo se un EPG esiste davvero per questa lista:
+    // offrirlo sempre significherebbe un comando che su metà delle liste
+    // risponde «non c'è niente da scaricare».
+    final hasEpg = EpgService.epgUrlFor(playlist) != null;
+
     return PopupMenuButton<String>(
       tooltip: 'Altre azioni',
       icon: const Icon(Icons.more_vert_rounded, size: 20),
@@ -295,10 +351,11 @@ class _SourceStrip extends StatelessWidget {
       shape: const RoundedRectangleBorder(borderRadius: kBorder),
       onSelected: (v) {
         if (v == 'edit') onEdit();
+        if (v == 'epg') onRefreshEpg();
         if (v == 'delete') onDelete();
       },
-      itemBuilder: (context) => const [
-        PopupMenuItem(
+      itemBuilder: (context) => [
+        const PopupMenuItem(
           value: 'edit',
           child: Row(
             children: [
@@ -308,7 +365,18 @@ class _SourceStrip extends StatelessWidget {
             ],
           ),
         ),
-        PopupMenuItem(
+        if (hasEpg)
+          const PopupMenuItem(
+            value: 'epg',
+            child: Row(
+              children: [
+                Icon(Icons.event_note_rounded, size: 18),
+                SizedBox(width: Gap.md),
+                Text('Aggiorna guida'),
+              ],
+            ),
+          ),
+        const PopupMenuItem(
           value: 'delete',
           child: Row(
             children: [
