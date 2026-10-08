@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -218,7 +219,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         padding: const EdgeInsets.all(Gap.lg),
         decoration: BoxDecoration(
           color: AppColors.panel,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: kBorder,
           border: Border.all(color: AppColors.line),
         ),
         child: Column(
@@ -273,7 +274,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         padding: const EdgeInsets.all(Gap.lg),
         decoration: BoxDecoration(
           color: AppColors.panel,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: kBorder,
           border: Border.all(color: AppColors.line),
         ),
         child: Column(
@@ -311,11 +312,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   },
                   child: const Text('Riprova'),
                 ),
-                const SizedBox(width: Gap.md),
-                OutlinedButton(
-                  onPressed: _switchBackend,
-                  child: const Text('Cambia motore'),
-                ),
+                // Stesso motivo della fascia inferiore: su web il motore e'
+                // uno solo, e offrire di cambiarlo manderebbe l'utente a
+                // premere un pulsante che non puo' aiutarlo.
+                if (!kIsWeb) ...[
+                  const SizedBox(width: Gap.md),
+                  OutlinedButton(
+                    onPressed: _switchBackend,
+                    child: const Text('Cambia motore'),
+                  ),
+                ],
               ],
             ),
           ],
@@ -473,15 +479,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
               ),
               const Spacer(),
-              Text(
-                ref.watch(playerBackendProvider).name,
-                style: const TextStyle(fontSize: 12, color: AppColors.muted),
-              ),
-              IconButton(
-                onPressed: _switchBackend,
-                icon: const Icon(Icons.tune_rounded, size: 20),
-                tooltip: 'Cambia motore di riproduzione',
-              ),
+              // Su web non esiste un secondo motore da scegliere: fvp e
+              // media_kit sono entrambi nativi. Mostrare il comando
+              // prometterebbe un rimedio che li' non c'e'.
+              if (!kIsWeb) ...[
+                Text(
+                  ref.watch(playerBackendProvider).name,
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                ),
+                IconButton(
+                  onPressed: _switchBackend,
+                  icon: const Icon(Icons.tune_rounded, size: 20),
+                  tooltip: 'Cambia motore di riproduzione',
+                ),
+              ],
             ],
           ),
         ),

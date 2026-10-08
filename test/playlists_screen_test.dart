@@ -57,7 +57,11 @@ void main() {
     await pump(tester, db);
 
     expect(find.text('Lista di prova'), findsOneWidget);
-    expect(find.textContaining('42 canali'), findsOneWidget);
+    // Il conteggio e la sua etichetta sono due elementi, non una frase: il
+    // numero sta in una colonna tabulare che si legge in verticale fra liste.
+    expect(find.text('42'), findsOneWidget);
+    expect(find.text('canali'), findsOneWidget);
+    expect(find.textContaining('M3U'), findsOneWidget);
   });
 
   testWidgets('esiste un comando visibile per eliminare', (tester) async {

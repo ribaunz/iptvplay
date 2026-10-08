@@ -93,12 +93,16 @@ class ChannelRow extends StatelessWidget {
         ? '?'
         : data.channel.name.trim().characters.first.toUpperCase();
 
+    // Alloggiamento, non riquadro: fondo incassato e filetto. Un logo che
+    // manca deve leggersi come uno slot vuoto, non come un caricamento
+    // fallito — e i provider ne servono pochi e spesso rotti.
     return Container(
       width: 32,
       height: 32,
       decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(4),
+        color: AppColors.edge,
+        borderRadius: kBorder,
+        border: Border.all(color: AppColors.lineSoft),
       ),
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,

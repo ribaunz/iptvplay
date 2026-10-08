@@ -215,40 +215,47 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
     final groups = ref.watch(groupsProvider(widget.playlistId));
     final selected = ref.watch(selectedGroupProvider);
 
-    return groups.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Padding(
-        padding: const EdgeInsets.all(Gap.lg),
-        child: Text('Impossibile leggere i gruppi.\n$e'),
-      ),
-      data: (list) => ListView.builder(
-        itemCount: list.length + 1,
-        itemBuilder: (context, i) {
-          if (i == 0) {
+    // Il rail è un modulo montato, con un fondo suo: senza, i gruppi sono
+    // testo che galleggia sulla stessa superficie dei canali, e il confine
+    // fra navigazione e contenuto sparisce.
+    return ColoredBox(
+      color: AppColors.ink,
+      child: groups.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Padding(
+          padding: const EdgeInsets.all(Gap.lg),
+          child: Text('Impossibile leggere i gruppi.\n$e'),
+        ),
+        data: (list) => ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: Gap.sm),
+          itemCount: list.length + 1,
+          itemBuilder: (context, i) {
+            if (i == 0) {
+              return _groupTile(
+                label: 'Tutti i canali',
+                count: null,
+                isSelected: selected == null,
+                onTap: () {
+                  ref.read(selectedGroupProvider.notifier).set(null);
+                  _reload();
+                },
+              );
+            }
+            final g = list[i - 1];
             return _groupTile(
-              label: 'Tutti i canali',
-              count: null,
-              isSelected: selected == null,
+              label: g.name,
+              count: g.channelCount,
+              isSelected: selected == g.id,
               onTap: () {
-                ref.read(selectedGroupProvider.notifier).set(null);
+                ref.read(selectedGroupProvider.notifier).set(g.id);
                 _reload();
+                if (MediaQuery.sizeOf(context).width < 900) {
+                  Navigator.of(context).maybePop();
+                }
               },
             );
-          }
-          final g = list[i - 1];
-          return _groupTile(
-            label: g.name,
-            count: g.channelCount,
-            isSelected: selected == g.id,
-            onTap: () {
-              ref.read(selectedGroupProvider.notifier).set(g.id);
-              _reload();
-              if (MediaQuery.sizeOf(context).width < 900) {
-                Navigator.of(context).maybePop();
-              }
-            },
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -317,7 +324,8 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
     return ListView.separated(
       controller: _scroll,
       itemCount: _channels.length + (_exhausted ? 0 : 1),
-      separatorBuilder: (_, _) => const Divider(height: 1),
+      separatorBuilder: (_, _) =>
+          const Divider(height: 1, color: AppColors.lineSoft),
       itemBuilder: (context, i) {
         if (i >= _channels.length) {
           return const Padding(
@@ -357,7 +365,8 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
         }
         return ListView.separated(
           itemCount: list.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
+          separatorBuilder: (_, _) =>
+              const Divider(height: 1, color: AppColors.lineSoft),
           itemBuilder: (context, i) {
             final c = list[i];
             return ChannelRow(

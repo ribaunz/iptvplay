@@ -166,6 +166,32 @@ Future<void> seedDemoData(AppDatabase db) async {
   await db.batch((b) => b.insertAll(db.programmes, programmes));
 
   await ChannelsDaoRefresh(db).refresh(playlistId);
+
+  // Due liste di sola anagrafica, senza canali.
+  //
+  // Non servono a navigare ma a **disegnare**: con una lista sola non si vede
+  // se i conteggi si incolonnano, che e' il motivo per cui la schermata liste
+  // usa cifre tabulari. Conteggi di tre ordini di grandezza diversi, e una mai
+  // aggiornata, coprono i casi che il layout deve reggere.
+  await db.batch(
+    (b) => b.insertAll(db.playlists, [
+      PlaylistsCompanion.insert(
+        name: 'Calcio estero',
+        type: PlaylistType.xtream,
+        host: const Value('portale.invalid'),
+        port: const Value(8080),
+        username: const Value('demo'),
+        channelCount: const Value(1245),
+      ),
+      PlaylistsCompanion.insert(
+        name: 'Backup di famiglia',
+        type: PlaylistType.m3u,
+        url: const Value('famiglia.m3u'),
+        channelCount: const Value(12),
+        lastSyncAt: Value(now.subtract(const Duration(days: 40))),
+      ),
+    ]),
+  );
 }
 
 /// Piccolo aiuto per ricalcolare i conteggi senza esporre il DAO qui.
