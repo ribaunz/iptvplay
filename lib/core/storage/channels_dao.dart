@@ -37,6 +37,7 @@ class ChannelsDao extends DatabaseAccessor<AppDatabase>
   Future<List<Channel>> pageChannels({
     required int playlistId,
     int? groupId,
+    ChannelKind? kind,
     int? afterSortOrder,
     int limit = 50,
   }) {
@@ -48,18 +49,79 @@ class ChannelsDao extends DatabaseAccessor<AppDatabase>
     if (groupId != null) {
       q.where((c) => c.groupId.equals(groupId));
     }
+    if (kind != null) {
+      q.where((c) => c.kind.equalsValue(kind));
+    }
     if (afterSortOrder != null) {
       q.where((c) => c.sortOrder.isBiggerThanValue(afterSortOrder));
     }
     return q.get();
   }
 
+  /// Quanti canali per natura del contenuto.
+  ///
+  /// Serve a decidere se mostrare la divisione diretta/film/serie: su una lista
+  /// di soli canali live quei comandi sarebbero tre pulsanti di cui due vuoti,
+  /// e l'assenza di una sezione e' informazione utile quanto la sua presenza.
+  /// Una sola query aggregata, non tre `COUNT(*)`.
+  Future<Map<ChannelKind, int>> kindCounts(int playlistId) async {
+    final rows = await customSelect(
+      'SELECT kind, COUNT(*) AS n FROM channels '
+      'WHERE playlist_id = ? GROUP BY kind',
+      variables: [Variable<int>(playlistId)],
+      readsFrom: {channels},
+    ).get();
+
+    final byName = {for (final k in ChannelKind.values) k.name: k};
+    final out = <ChannelKind, int>{};
+    for (final r in rows) {
+      // Un valore che non corrisponde a nessuna natura nota viene ignorato
+      // invece di far fallire la schermata: il database potrebbe venire da una
+      // versione futura dell'app, o da una riga scritta a mano.
+      final kind = byName[r.data['kind'] as String?];
+      if (kind != null) out[kind] = r.read<int>('n');
+    }
+    return out;
+  }
+
   /// Gruppi di una lista, già ordinati e con il conteggio canali.
-  Future<List<Group>> groupsOf(int playlistId) {
-    return (select(groups)
-          ..where((g) => g.playlistId.equals(playlistId))
-          ..orderBy([(g) => OrderingTerm.asc(g.sortOrder)]))
-        .get();
+  ///
+  /// Con [kind] il conteggio e' ricalcolato sui soli canali di quella natura e
+  /// i gruppi che restano vuoti **non vengono restituiti**: in una lista
+  /// completa i gruppi dei film non contengono canali live, e mostrarli a zero
+  /// renderebbe la scaletta illeggibile.
+  Future<List<Group>> groupsOf(int playlistId, {ChannelKind? kind}) async {
+    if (kind == null) {
+      return (select(groups)
+            ..where((g) => g.playlistId.equals(playlistId))
+            ..orderBy([(g) => OrderingTerm.asc(g.sortOrder)]))
+          .get();
+    }
+
+    final rows = await customSelect(
+      '''
+      SELECT g.id, g.playlist_id, g.name, g.sort_order, COUNT(c.id) AS n
+      FROM groups g
+      JOIN channels c ON c.group_id = g.id AND c.kind = ?
+      WHERE g.playlist_id = ?
+      GROUP BY g.id
+      ORDER BY g.sort_order
+      ''',
+      variables: [Variable<String>(kind.name), Variable<int>(playlistId)],
+      readsFrom: {groups, channels},
+    ).get();
+
+    return rows
+        .map(
+          (r) => Group(
+            id: r.read<int>('id'),
+            playlistId: r.read<int>('playlist_id'),
+            name: r.read<String>('name'),
+            sortOrder: r.read<int>('sort_order'),
+            channelCount: r.read<int>('n'),
+          ),
+        )
+        .toList(growable: false);
   }
 
   Future<int> countChannels(int playlistId) async {
