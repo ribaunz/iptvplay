@@ -193,7 +193,20 @@ jobs:
       # `--simulator` implica gia' il debug mode (il release non e' supportato
       # in simulatore), ma lo si scrive per non doverlo ricordare.
       - name: Build per Simulatore
-        run: flutter build ios --simulator --debug
+        run: |
+          set -euo pipefail
+          # Il build release gira prima, nella stessa `build/ios`, e lascia i
+          # file copiati da Xcode in sola lettura. Il build per simulatore
+          # riusa quella cartella e impellerc non riesce a riscrivere gli
+          # shader di Material:
+          #   impellerc failure: Could not write file to
+          #   .../App.framework/flutter_assets/shaders/ink_sparkle.frag
+          # Si toglie di mezzo la cartella del simulatore e si rendono
+          # scrivibili i resti, invece di un `flutter clean` che rifarebbe da
+          # zero anche quello che e' appena stato compilato.
+          rm -rf build/ios/Debug-iphonesimulator
+          chmod -R u+w build/ios || true
+          flutter build ios --simulator --debug
 
       # Lo zip si fa a mano di proposito: upload-artifact, puntato a una
       # cartella .app, ne carica il *contenuto* e perde l'involucro — che e'
