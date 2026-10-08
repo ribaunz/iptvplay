@@ -162,6 +162,10 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
               padding: const EdgeInsets.all(Gap.lg),
               children: [
                 SegmentedButton<_SourceKind>(
+                  // Senza spunta: la selezione si legge gia' dal fondo e dal
+                  // peso, e il segno che compare e sparisce fa saltare la
+                  // larghezza dei segmenti a ogni cambio.
+                  showSelectedIcon: false,
                   segments: const [
                     ButtonSegment(
                       value: _SourceKind.m3uUrl,
