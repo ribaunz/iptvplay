@@ -20,6 +20,7 @@ part 'database.g.dart';
     Programmes,
     Favorites,
     WatchHistory,
+    Settings,
   ],
   daos: [ChannelsDao],
 )
@@ -63,7 +64,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -78,6 +79,15 @@ class AppDatabase extends _$AppDatabase {
     // dimenticherebbe.
     onUpgrade: (m, from, to) async {
       if (from < 2) await m.addColumn(playlists, playlists.userAgent);
+      // v3: le preferenze dell'utente, e l'indice che rende gratuito il filtro
+      // per natura del contenuto. Nessun dato esistente viene riscritto:
+      // `kind` esiste dalla v1 con default 'live', quindi le liste importate
+      // prima di oggi finiscono tutte in «Diretta», che per una lista di soli
+      // canali live e' esattamente giusto.
+      if (from < 3) {
+        await m.createTable(settings);
+        await m.createIndex(idxChannelsPlaylistKind);
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
@@ -100,6 +110,7 @@ class AppDatabase extends _$AppDatabase {
   Future<List<Channel>> searchChannels(
     String query, {
     int? playlistId,
+    ChannelKind? kind,
     int limit = 50,
   }) async {
     final match = _toFtsPrefixQuery(query);
@@ -111,12 +122,14 @@ class AppDatabase extends _$AppDatabase {
       JOIN channels c ON c.id = f.rowid
       WHERE channels_fts MATCH ?
         ${playlistId != null ? 'AND c.playlist_id = ?' : ''}
+        ${kind != null ? 'AND c.kind = ?' : ''}
       ORDER BY bm25(channels_fts), c.sort_order
       LIMIT ?
       ''',
       variables: [
         Variable<String>(match),
         if (playlistId != null) Variable<int>(playlistId),
+        if (kind != null) Variable<String>(kind.name),
         Variable<int>(limit),
       ],
       readsFrom: {channels},
@@ -179,6 +192,22 @@ class AppDatabase extends _$AppDatabase {
       if (list.length < 2) list.add(programmes.map(r.data));
     }
     return out;
+  }
+
+  /// Tutte le preferenze, in una lettura sola.
+  ///
+  /// Sono poche righe e servono tutte insieme all'avvio: una query per chiave
+  /// moltiplicherebbe i round trip su web, dove ogni accesso passa dal worker.
+  Future<Map<String, String>> readSettings() async {
+    final rows = await select(settings).get();
+    return {for (final r in rows) r.key: r.value};
+  }
+
+  /// Scrive una preferenza, sovrascrivendo quella precedente.
+  Future<void> writeSetting(String key, String value) {
+    return into(
+      settings,
+    ).insertOnConflictUpdate(SettingsCompanion.insert(key: key, value: value));
   }
 
   /// Applica la retention window all'EPG.
