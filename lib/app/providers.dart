@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/storage/channels_dao.dart';
 import '../core/storage/database.dart';
+import '../core/storage/tables.dart';
 import '../features/player/fvp_backend.dart';
 import '../features/player/media_kit_backend.dart';
 import '../features/player/player_backend.dart';
@@ -50,18 +51,44 @@ final selectedGroupProvider = NotifierProvider<_Value<int?>, int?>(
   () => _Value<int?>(null),
 );
 
+/// Natura del contenuto in vista; null significa "nessuna divisione".
+///
+/// Resta null sulle liste di soli canali live, che sono la maggioranza: senza
+/// contenuti su richiesta non c'e' nulla da dividere, e il filtro costerebbe
+/// una condizione in piu' su ogni query per niente.
+final selectedKindProvider =
+    NotifierProvider<_Value<ChannelKind?>, ChannelKind?>(
+      () => _Value<ChannelKind?>(null),
+    );
+
 /// Testo di ricerca corrente.
 final searchQueryProvider = NotifierProvider<_Value<String>, String>(
   () => _Value<String>(''),
 );
 
-final groupsProvider = FutureProvider.family<List<Group>, int>((
+/// Gruppi di una lista, eventualmente ristretti a una natura di contenuto.
+///
+/// La chiave e' una coppia `(lista, natura)`: i record hanno uguaglianza
+/// strutturale, quindi la famiglia riusa la cache quando entrambe coincidono.
+final groupsProvider = FutureProvider.family<List<Group>, (int, ChannelKind?)>((
   ref,
-  playlistId,
+  key,
 ) async {
   // Si ricarica quando cambia il contenuto delle liste.
   ref.watch(playlistsProvider);
-  return ref.watch(channelsDaoProvider).groupsOf(playlistId);
+  return ref.watch(channelsDaoProvider).groupsOf(key.$1, kind: key.$2);
+});
+
+/// Quanti canali per natura, nella lista indicata.
+///
+/// Decide se la divisione diretta/film/serie va mostrata: con una sola natura
+/// presente, mostrarla significherebbe offrire due sezioni vuote.
+final kindCountsProvider = FutureProvider.family<Map<ChannelKind, int>, int>((
+  ref,
+  playlistId,
+) async {
+  ref.watch(playlistsProvider);
+  return ref.watch(channelsDaoProvider).kindCounts(playlistId);
 });
 
 /// Risultati di ricerca full-text.
@@ -71,9 +98,16 @@ final searchResultsProvider = FutureProvider.autoDispose<List<Channel>>((
   final query = ref.watch(searchQueryProvider);
   final playlistId = ref.watch(selectedPlaylistProvider);
   if (query.trim().isEmpty || playlistId == null) return const [];
+  // La ricerca rispetta la natura scelta: cercando fra i film, trovare canali
+  // live farebbe sembrare rotto il filtro appena usato.
   return ref
       .watch(databaseProvider)
-      .searchChannels(query, playlistId: playlistId, limit: 200);
+      .searchChannels(
+        query,
+        playlistId: playlistId,
+        kind: ref.watch(selectedKindProvider),
+        limit: 200,
+      );
 });
 
 final favoritesProvider = StreamProvider<List<Channel>>((ref) {
