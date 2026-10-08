@@ -250,16 +250,26 @@ programmes      id, epg_channel_id, start_utc, stop_utc, title, description, cat
 
 favorites       channel_id, added_at, sort_order
 watch_history   channel_id, watched_at, position_ms
+
+settings        key, value          # preferenze utente, chiave/valore (schema v3)
+                # volume, muto, riconnessione automatica, forma dell'elenco
+                # per tipo. Chiave/valore perche' una colonna per preferenza
+                # costerebbe una migrazione a ogni preferenza nuova.
 ```
 
 ### Indici — non opzionali con 50k canali
 
 ```sql
 CREATE INDEX idx_channels_playlist_group ON channels(playlist_id, group_id);
+CREATE INDEX idx_channels_playlist_kind  ON channels(playlist_id, kind, sort_order);
 CREATE INDEX idx_channels_tvg            ON channels(tvg_id);
 CREATE INDEX idx_programmes_chan_start   ON programmes(epg_channel_id, start_utc);
 CREATE INDEX idx_groups_playlist         ON groups(playlist_id, sort_order);
 ```
+
+`idx_channels_playlist_kind` serve alla divisione diretta/film/serie: e' la query
+calda della navigazione, e senza indice scegliere «Film» su una lista da 50k
+canali costa uno scan completo **a ogni pagina**, non solo alla prima.
 
 ### Tre decisioni che evitano problemi seri
 
@@ -443,6 +453,48 @@ Entrambi aperti su `media-kit/media-kit`, entrambi di agosto 2026, entrambi cent
 
 **#1441 — Windows: schermo nero su master HLS con sottotitoli.** `media_kit_libs_windows_video` 1.0.11 impacchetta `libmpv-2.dll` del **24 settembre 2023** (v0.36.0). Il demuxer HLS di quella build, di fronte a un master che contiene `#EXT-X-MEDIA:TYPE=SUBTITLES`, si aggancia alla rendition sottotitoli, scarica `.webvtt` in loop e non chiede mai un segmento video → nero infinito con `buffering=true`. Molte playlist IPTV commerciali hanno rendition sottotitoli.
 **Mitigazione confermata nella issue**: sostituire manualmente `libmpv-2.dll` con una build recente risolve. Windows è l'unica piattaforma media_kit ancora ferma a un core del 2023.
+
+### Quando il flusso cade
+
+Un flusso IPTV si interrompe per cause che non sono guasti dell'app: il provider
+satura le connessioni, il canale viene spostato, la rete ha un buco. Il player
+distingue **tre** situazioni, perche' il rimedio e' diverso in ognuna:
+
+| Situazione | Come si riconosce | Cosa fa |
+|---|---|---|
+| Non parte | errore in apertura, posizione mai avanzata | pannello «Il canale non parte», nessun tentativo automatico |
+| Si interrompe | EOF dichiarato dal backend, oppure posizione ferma dopo aver scorso | riapre da sola, con attese 2-4-8-15-30 s, poi si arrende |
+| E' finito | EOF con durata nota | pannello «Riproduzione finita» e il comando «Rivedi» |
+
+Tre regole che vanno insieme al meccanismo:
+
+- **Mai ritentare un canale che non e' mai partito.** Il problema e' l'indirizzo,
+  le credenziali o il formato: ritentare non li corregge, e molti pannelli
+  bandiscono l'IP dopo qualche tentativo fallito. E' lo stesso ragionamento per
+  cui `NetworkGateway` non ritenta un 401 (§9).
+- **La scala dei tentativi e' finita.** Un canale che il provider ha tolto non
+  torna: dopo cinque tentativi si passa la parola all'utente.
+- **Lo stallo si misura in battiti del timer, non sull'orologio di sistema.**
+  Mentre l'app e' in background i timer sono sospesi ma l'orologio cammina:
+  al ritorno un confronto con `DateTime.now()` diagnosticherebbe uno stallo di
+  dieci minuti su un flusso che era solo in pausa. E su certi stream live
+  non-seekable la posizione **non avanza mai**, anche mentre tutto funziona:
+  senza quella guardia la sorveglianza riaprirebbe in continuazione un canale
+  sano.
+
+### Volume
+
+`PlayerBackend.setVolume` normalizza da 0 a 1 perche' le librerie sottostanti
+non concordano: libmpv ragiona in percentuale, `video_player` e `<video>` in
+frazione. Il livello si applica **prima** della `open`, non dopo: aprire al
+massimo e abbassare un istante dopo si sente dalle casse a ogni cambio di
+canale.
+
+> **Su iOS non funziona sul web.** Safari tratta `video.volume` come di sola
+> lettura e lascia il livello ai tasti fisici del dispositivo. `muted` invece si
+> imposta, quindi azzerare silenzia davvero mentre i valori intermedi vengono
+> ignorati. Il backend lo registra nel log invece di fingere che il comando
+> abbia avuto effetto.
 
 ### Cascata di selezione sul web
 
