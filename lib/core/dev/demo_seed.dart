@@ -277,7 +277,11 @@ Future<void> _seedOnDemand(
         playlistId: playlistId,
         groupId: Value(gFilm),
         name: films[i],
-        url: 'http://demo.invalid/movie/u/p/$i.mkv',
+        // Il primo punta a un file locale: mettendo un video qualsiasi in
+        // `build/web/demo/clip.mp4` il player ha qualcosa da riprodurre
+        // davvero, ed e' l'unico modo di guardare la barra di avanzamento
+        // mentre avanza. Se il file non c'e' si comporta come gli altri.
+        url: i == 0 ? 'demo/clip.mp4' : 'http://demo.invalid/movie/u/p/$i.mkv',
         logoUrl: Value('demo/poster-${i % 6 + 1}.png'),
         kind: const Value(ChannelKind.vod),
         sortOrder: Value(sort++),

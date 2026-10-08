@@ -85,6 +85,7 @@ class MediaKitBackend implements PlayerBackend {
         _log('duration = $v');
         _emit(_state.copyWith(duration: v));
       }),
+      player.stream.buffer.listen((v) => _emit(_state.copyWith(buffered: v))),
       player.stream.width.listen((w) => _updateSize(width: w)),
       player.stream.height.listen((h) => _updateSize(height: h)),
       player.stream.error.listen((e) {
@@ -141,6 +142,9 @@ class MediaKitBackend implements PlayerBackend {
 
   @override
   Future<void> play() async => _player?.play();
+
+  @override
+  Future<void> seek(Duration position) async => _player?.seek(position);
 
   // libmpv ragiona in percentuale: 1.0 qui e' 100 per lui.
   @override

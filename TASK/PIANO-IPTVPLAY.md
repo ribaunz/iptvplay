@@ -124,7 +124,12 @@ Versioni verificate l'8 settembre 2026. **Pinnare tutto**: questo progetto dipen
 
 ### UI e utility
 
-`flutter_riverpod` (state), `go_router` (navigazione), `flutter_secure_storage` (credenziali Xtream — **mai nel DB**), `file_picker` (import locale: su web è un percorso di prima classe, non un ripiego), `cached_network_image` (loghi canali).
+`flutter_riverpod` (state), `go_router` (navigazione), `flutter_secure_storage` (credenziali Xtream — **mai nel DB**), `file_picker` (import locale: su web è un percorso di prima classe, non un ripiego), `cached_network_image` (loghi canali), `window_manager` (schermo intero su desktop: Flutter non espone alcuna API per togliere la cornice della finestra, e `SystemChrome.setEnabledSystemUIMode` vale solo su mobile).
+
+> **Debito dichiarato.** `flutter_secure_storage` e' elencato qui ma **non e'
+> fra le dipendenze**, e la password Xtream finisce comunque nel database:
+> `playlists.url` conserva la `get.php` del portale, che la contiene in chiaro.
+> Sistemarlo significa ricostruire le URL a runtime da un archivio cifrato.
 
 ### Librerie JS caricate a runtime sul web
 
@@ -481,6 +486,43 @@ Tre regole che vanno insieme al meccanismo:
   non-seekable la posizione **non avanza mai**, anche mentre tutto funziona:
   senza quella guardia la sorveglianza riaprirebbe in continuazione un canale
   sano.
+
+### La barra di avanzamento
+
+«A che punto sono» vuol dire due cose diverse, e la barra ne mostra due:
+
+- **Contenuto a richiesta** (durata nota): posizione nel film, trascinabile, con
+  la parte gia' scaricata disegnata sotto. `PlayerBackend.seek` esiste per
+  questo.
+- **Diretta**: la posizione nel flusso non significa niente — parte da zero
+  quando apri il canale — mentre quello che conta e' **a che punto e' il
+  programma in onda**, cioe' lo stesso filetto che la riga del canale mostra
+  gia' in elenco.
+
+Senza durata e senza guida non si disegna nulla: una barra che non puo' dire
+dove sei e' decorazione. I colori sono bianco trasparente e non i filetti del
+tema: questa barra sta sopra il video, dove sotto puo' esserci qualunque
+immagine, e i grigi tarati per i pannelli spariscono sul nero.
+
+### Schermo intero
+
+Doppio clic sul video, oppure il tasto `F`. Non esiste una sola nozione di
+«tutto schermo»: su desktop si toglie la cornice della finestra
+(`window_manager`), nel browser si chiede `requestFullscreen` al documento —
+non all'elemento `<video>`, che e' montato dentro una `HtmlElementView` e si
+porterebbe via i comandi disegnati da Flutter. Su mobile il comando non viene
+offerto: l'app e' gia' a schermo pieno.
+
+> **Due trappole, una per piattaforma.**
+>
+> Il riconoscitore del doppio tocco va messo **sotto** i comandi, non attorno a
+> tutto lo stack: in cima tiene aperta l'arena dei gesti per ~300 ms a ogni
+> clic, e ogni pulsante del player risponde in ritardo aspettando un secondo
+> clic che quasi mai arriva.
+>
+> Sul web l'elemento `<video>` di `HtmlElementView` sta **sopra** la tela di
+> Flutter: senza `pointer-events: none` si prende i clic e i comandi dell'app
+> non ricevono nulla.
 
 ### Volume
 

@@ -126,12 +126,18 @@ class FvpBackend implements PlayerBackend {
         videoSize: size,
         error: v.hasError ? v.errorDescription : null,
         ended: v.isCompleted,
+        // `buffered` e' una lista di intervalli: interessa fin dove arriva
+        // l'ultimo, che e' il punto oltre il quale spostarsi costa un'attesa.
+        buffered: v.buffered.isEmpty ? Duration.zero : v.buffered.last.end,
       ),
     );
   }
 
   @override
   Future<void> play() async => _controller?.play();
+
+  @override
+  Future<void> seek(Duration position) async => _controller?.seekTo(position);
 
   @override
   Future<void> setVolume(double volume) async {

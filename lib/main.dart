@@ -13,6 +13,7 @@ import 'app/theme.dart';
 import 'core/dev/demo_seed.dart';
 import 'core/storage/database.dart';
 import 'core/storage/storage_benchmark.dart';
+import 'core/ui/fullscreen.dart';
 import 'features/player/auto_probe.dart';
 import 'features/player/fvp_backend.dart';
 import 'features/player/media_kit_backend.dart';
@@ -37,9 +38,12 @@ const kBench = bool.fromEnvironment('BENCH');
 /// ```
 const kDemo = bool.fromEnvironment('DEMO');
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  // Il gestore di finestre va agganciato prima che la finestra esista: serve
+  // al doppio clic che manda il player a schermo intero su desktop.
+  await Fullscreen.init();
 
   // Innesta fvp come implementazione di video_player sulle piattaforme native.
   // Sul web non va registrato: fvp non lo supporta.

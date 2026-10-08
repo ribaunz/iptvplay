@@ -20,6 +20,7 @@ class PlayerState {
     this.videoSize,
     this.error,
     this.ended = false,
+    this.buffered = Duration.zero,
   });
 
   final bool playing;
@@ -28,6 +29,13 @@ class PlayerState {
   final Duration duration;
   final Size? videoSize;
   final String? error;
+
+  /// Fin dove il buffer e' stato riempito.
+  ///
+  /// Su un contenuto a richiesta e' la parte della barra gia' scaricata: dice
+  /// se spostarsi li' sara' immediato o costera' un'attesa. Su una diretta vale
+  /// poco, perche' il buffer e' corto per costruzione.
+  final Duration buffered;
 
   /// Il flusso e' finito: EOF per il backend.
   ///
@@ -54,6 +62,7 @@ class PlayerState {
     String? error,
     bool clearError = false,
     bool? ended,
+    Duration? buffered,
   }) {
     return PlayerState(
       playing: playing ?? this.playing,
@@ -63,6 +72,7 @@ class PlayerState {
       videoSize: videoSize ?? this.videoSize,
       error: clearError ? null : (error ?? this.error),
       ended: ended ?? this.ended,
+      buffered: buffered ?? this.buffered,
     );
   }
 
@@ -117,6 +127,14 @@ abstract interface class PlayerBackend {
   Future<void> play();
   Future<void> pause();
   Future<void> stop();
+
+  /// Sposta la riproduzione.
+  ///
+  /// Ha senso solo dove una durata esiste: su una diretta non-seekable i
+  /// backend rispondono «Cannot seek in this stream», ed e' il motivo per cui
+  /// la barra si lascia trascinare soltanto quando [PlayerState.duration] e'
+  /// maggiore di zero.
+  Future<void> seek(Duration position);
 
   /// Volume da 0 (muto) a 1.
   ///
