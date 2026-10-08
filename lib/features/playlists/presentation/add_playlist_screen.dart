@@ -5,12 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/theme.dart';
 import '../../../core/net/network_gateway.dart';
 import '../../../core/net/user_agents.dart';
 import '../../../core/net/web_capability.dart';
-import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
 import '../../../core/storage/tables.dart';
+import '../../epg/data/epg_service.dart';
 import '../data/m3u_importer.dart';
 import '../data/xtream_client.dart';
 
@@ -665,15 +666,50 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
           'di nuovo.';
     }
 
+    // I canali ci sono: ora la guida, se la lista ne dichiara una.
+    final epgNote = await _syncEpg(playlistId);
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             '${result.channelsImported} canali in '
-            '${result.groupsCreated} gruppi',
+            '${result.groupsCreated} gruppi'
+            '${epgNote == null ? '' : ', $epgNote'}',
           ),
         ),
       );
+    }
+  }
+
+  /// Scarica la guida programmi subito dopo i canali.
+  ///
+  /// Qui e non altrove perche' e' l'unico momento in cui si ha tutto: per un
+  /// portale Xtream l'indirizzo XMLTV si ricava dalla URL appena salvata, e per
+  /// una M3U l'`url-tvg` e' stato appena scritto dall'import.
+  ///
+  /// Un errore **non** fa fallire l'import: i canali sono gia' dentro, e una
+  /// lista senza palinsesto si usa benissimo. Si dice soltanto com'e' andata.
+  Future<String?> _syncEpg(int playlistId) async {
+    final db = ref.read(databaseProvider);
+    final playlist = await (db.select(
+      db.playlists,
+    )..where((p) => p.id.equals(playlistId))).getSingleOrNull();
+    if (playlist == null) return null;
+    if (EpgService.epgUrlFor(playlist) == null) return null;
+
+    try {
+      if (mounted) setState(() => _progress = 'Scarico la guida programmi');
+      final result = await EpgService(db).sync(
+        playlist,
+        onProgress: (n) {
+          if (mounted) setState(() => _progress = '$n programmi importati');
+        },
+      );
+      if (result == null || result.programmesImported == 0) return null;
+      return '${result.programmesImported} programmi in guida';
+    } catch (_) {
+      return 'guida programmi non disponibile';
     }
   }
 }
