@@ -26,6 +26,7 @@ class FvpBackend implements PlayerBackend {
 
   PlayerState _state = const PlayerState();
   bool _sawFirstFrame = false;
+  double _volume = 1;
 
   @override
   String get name => 'fvp';
@@ -88,6 +89,9 @@ class FvpBackend implements PlayerBackend {
     try {
       await controller.initialize();
       _log('initialize() ok — size ${controller.value.size}');
+      // Il controller e' nuovo a ogni open: senza questa riga il volume scelto
+      // dall'utente tornerebbe al massimo a ogni cambio di canale.
+      await controller.setVolume(_volume);
       await controller.play();
     } catch (e) {
       _log('ERROR in initialize(): $e', level: 'error');
@@ -121,12 +125,19 @@ class FvpBackend implements PlayerBackend {
         duration: v.duration,
         videoSize: size,
         error: v.hasError ? v.errorDescription : null,
+        ended: v.isCompleted,
       ),
     );
   }
 
   @override
   Future<void> play() async => _controller?.play();
+
+  @override
+  Future<void> setVolume(double volume) async {
+    _volume = volume.clamp(0.0, 1.0);
+    await _controller?.setVolume(_volume);
+  }
 
   @override
   Future<void> pause() async => _controller?.pause();

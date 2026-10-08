@@ -48,6 +48,7 @@ class WebPlayerBackend implements PlayerBackend {
   final _logCtrl = StreamController<PlayerLogEntry>.broadcast();
   PlayerState _state = const PlayerState();
   Timer? _poll;
+  double _volume = 1;
 
   @override
   String get name => 'web';
@@ -83,6 +84,7 @@ class WebPlayerBackend implements PlayerBackend {
     final video = web.HTMLVideoElement()
       ..autoplay = true
       ..controls = false
+      ..volume = _volume
       ..style.width = '100%'
       ..style.height = '100%'
       ..style.backgroundColor = 'black';
@@ -95,8 +97,33 @@ class WebPlayerBackend implements PlayerBackend {
       (int _) => video,
     );
 
+    // L'elemento `<video>` segnala i propri guasti con un evento, non con
+    // un'eccezione: senza questo ascolto un indirizzo irraggiungibile resta un
+    // rettangolo nero che carica per sempre, perche' `play()` non solleva
+    // nulla e il polling vede soltanto "sta ancora riempiendo il buffer".
+    video.addEventListener(
+      'error',
+      (web.Event _) {
+        final code = video.error?.code;
+        _fail(switch (code) {
+          1 => 'Riproduzione annullata.',
+          2 => 'La rete ha interrotto il trasferimento.',
+          3 => 'Il flusso è arrivato ma non è decodificabile.',
+          4 =>
+            'Il provider non ha risposto, oppure il formato non è '
+                'supportato dal browser.',
+          _ => 'Il browser ha interrotto la riproduzione.',
+        });
+      }.toJS,
+    );
+
     _poll = Timer.periodic(const Duration(milliseconds: 500), (_) => _sync());
     _log('backend web pronto');
+  }
+
+  void _fail(String message) {
+    _log('ERRORE: $message', level: 'error');
+    _emit(_state.copyWith(error: message));
   }
 
   void _sync() {
@@ -114,6 +141,7 @@ class WebPlayerBackend implements PlayerBackend {
             : Duration.zero,
         videoSize: (w > 0 && h > 0) ? Size(w.toDouble(), h.toDouble()) : null,
         error: _state.error,
+        ended: v.ended,
       ),
     );
   }
@@ -262,6 +290,29 @@ class WebPlayerBackend implements PlayerBackend {
     // hls.js e mpegts.js hanno API di distruzione diverse.
     _callMethod(engine, 'destroy', const []);
     _callMethod(engine, 'unload', const []);
+  }
+
+  /// Volume dell'elemento `<video>`.
+  ///
+  /// **Su iOS non ha effetto**: Safari tratta `volume` come di sola lettura e
+  /// lascia il livello ai tasti fisici. `muted` invece si imposta anche la',
+  /// percio' azzerare il volume silenzia davvero, mentre i valori intermedi
+  /// vengono ignorati dal sistema. Lo si registra nel log invece di fingere che
+  /// il comando abbia funzionato.
+  @override
+  Future<void> setVolume(double volume) async {
+    _volume = volume.clamp(0.0, 1.0);
+    final v = _video;
+    if (v == null) return;
+    v.volume = _volume;
+    v.muted = _volume == 0;
+    if ((v.volume - _volume).abs() > 0.01) {
+      _log(
+        'il browser ha ignorato il volume (${v.volume}): su iOS lo decidono '
+        'i tasti del dispositivo',
+        level: 'warn',
+      );
+    }
   }
 
   @override

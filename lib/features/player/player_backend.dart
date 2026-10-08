@@ -19,6 +19,7 @@ class PlayerState {
     this.duration = Duration.zero,
     this.videoSize,
     this.error,
+    this.ended = false,
   });
 
   final bool playing;
@@ -27,6 +28,15 @@ class PlayerState {
   final Duration duration;
   final Size? videoSize;
   final String? error;
+
+  /// Il flusso e' finito: EOF per il backend.
+  ///
+  /// Su un VOD e' la fine normale del film. **Su una diretta non lo e'**: vuol
+  /// dire che il provider ha chiuso la connessione, ed e' il caso in cui la
+  /// riconnessione automatica ha senso. Nessun backend lo segnala come errore,
+  /// percio' senza questo campo un canale che cade resta fermo su un fotogramma
+  /// nero senza che nulla lo dica.
+  final bool ended;
 
   /// True quando il decoder ha effettivamente esposto un frame video.
   /// Se resta false mentre [playing] è true, siamo nel caso "audio sì, video no".
@@ -43,6 +53,7 @@ class PlayerState {
     Size? videoSize,
     String? error,
     bool clearError = false,
+    bool? ended,
   }) {
     return PlayerState(
       playing: playing ?? this.playing,
@@ -51,13 +62,14 @@ class PlayerState {
       duration: duration ?? this.duration,
       videoSize: videoSize ?? this.videoSize,
       error: clearError ? null : (error ?? this.error),
+      ended: ended ?? this.ended,
     );
   }
 
   @override
   String toString() =>
       'PlayerState(playing: $playing, buffering: $buffering, pos: $position, '
-      'dur: $duration, video: $videoSize, err: $error)';
+      'dur: $duration, video: $videoSize, err: $error, ended: $ended)';
 }
 
 /// Una riga di log emessa dal backend, con l'istante in cui è arrivata.
@@ -105,6 +117,15 @@ abstract interface class PlayerBackend {
   Future<void> play();
   Future<void> pause();
   Future<void> stop();
+
+  /// Volume da 0 (muto) a 1.
+  ///
+  /// Normalizzato qui perche' le librerie sottostanti non concordano: libmpv
+  /// ragiona in percentuale, `video_player` e `<video>` in frazione. Lasciare
+  /// la conversione al chiamante significherebbe sbagliarla in un backend su
+  /// tre, con un volume al 100 che diventa muto.
+  Future<void> setVolume(double volume);
+
   Future<void> dispose();
 
   /// La superficie video da inserire nell'albero dei widget.

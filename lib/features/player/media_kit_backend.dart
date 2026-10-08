@@ -96,8 +96,12 @@ class MediaKitBackend implements PlayerBackend {
       player.stream.log.listen((e) {
         _log('[mpv:${e.prefix}/${e.level}] ${e.text}', level: 'mpv');
       }),
+      // EOF. Su un VOD e' la fine del film, su una diretta e' il provider che
+      // ha chiuso: in entrambi i casi il flusso non arriva piu', e chi guarda
+      // deve poterlo sapere.
       player.stream.completed.listen((v) {
         if (v) _log('completed = true (EOF)', level: 'warn');
+        _emit(_state.copyWith(ended: v));
       }),
     ]);
 
@@ -137,6 +141,11 @@ class MediaKitBackend implements PlayerBackend {
 
   @override
   Future<void> play() async => _player?.play();
+
+  // libmpv ragiona in percentuale: 1.0 qui e' 100 per lui.
+  @override
+  Future<void> setVolume(double volume) async =>
+      _player?.setVolume((volume.clamp(0.0, 1.0)) * 100);
 
   @override
   Future<void> pause() async => _player?.pause();
