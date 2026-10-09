@@ -97,6 +97,40 @@ void main() {
     await tester.pump();
   }
 
+  /// Il player aperto *sopra* la lista, non come prima schermata.
+  ///
+  /// Serve dove si guarda l'uscita: con il player come `home` non c'e' nulla
+  /// sotto, e `maybePop` non fa niente.
+  Future<void> pumpSopraLaLista(WidgetTester tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+          playerBackendProvider.overrideWithValue(backend),
+        ],
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PlayerScreen(channel: canale),
+                    ),
+                  ),
+                  child: const Text('guarda'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('guarda'));
+    await tester.pumpAndSettle();
+  }
+
   /// Due clic ravvicinati nel mezzo del video, come li manda un mouse.
   Future<void> doppioClic(WidgetTester tester) async {
     final centro = tester.getCenter(find.byType(PlayerScreen));
@@ -227,5 +261,47 @@ void main() {
     await doppioClic(tester);
 
     expect(richieste(), [true, false]);
+  }, skip: !(Platform.isWindows || Platform.isMacOS || Platform.isLinux));
+
+  testWidgets('tornando alla lista la finestra lascia lo schermo intero', (
+    tester,
+  ) async {
+    await pumpSopraLaLista(tester);
+    backend.emit(const PlayerState(playing: true, videoSize: Size(1280, 720)));
+    await tester.idle();
+    await tester.pump();
+
+    await doppioClic(tester);
+    expect(richieste(), [true]);
+
+    // Esc e' una delle quattro uscite — le altre sono la freccia indietro,
+    // «Torna ai canali» e il tasto di sistema. Il ripristino sta nella
+    // dismissione, cosi' vale per tutte.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await tester.idle();
+    await tester.pump();
+
+    // Senza questo si torna alla lista in una finestra senza cornice: su
+    // Windows non c'e' piu' la croce per chiudere, e l'app non si chiude.
+    expect(richieste(), [true, false]);
+  }, skip: !(Platform.isWindows || Platform.isMacOS || Platform.isLinux));
+
+  testWidgets('uscendo senza essere stati a schermo intero non si tocca la '
+      'finestra', (tester) async {
+    // Una `setFullScreen(false)` a vuoto non e' innocua: il plugin rimette la
+    // finestra nel rettangolo salvato entrando a schermo intero, e se non ci
+    // si e' mai entrati quel rettangolo non c'e'.
+    await pumpSopraLaLista(tester);
+    backend.emit(const PlayerState(playing: true, videoSize: Size(1280, 720)));
+    await tester.idle();
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await tester.idle();
+    await tester.pump();
+
+    expect(richieste(), isEmpty);
   }, skip: !(Platform.isWindows || Platform.isMacOS || Platform.isLinux));
 }

@@ -44,6 +44,11 @@ Future<void> set(bool value) async {
     if (_eraMassimizzata) await windowManager.unmaximize();
     await windowManager.setFullScreen(true);
   } else {
+    // Togliere uno schermo intero che non c'e' non e' innocuo: il plugin
+    // rimette la finestra nel rettangolo che si era salvato entrando, e se non
+    // ci si e' mai entrati quel rettangolo non esiste. Lo stesso riguardo che
+    // la versione web ha per `exitFullscreen`.
+    if (!await windowManager.isFullScreen()) return;
     await windowManager.setFullScreen(false);
     if (_eraMassimizzata) {
       _eraMassimizzata = false;

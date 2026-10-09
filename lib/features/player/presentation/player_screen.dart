@@ -137,6 +137,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _sub?.cancel();
     _castSub?.cancel();
     _backend?.dispose();
+    // Lo schermo intero è una scelta per il video, non uno stato in cui
+    // lasciare il resto dell'app: chi tornava alla lista se la ritrovava in
+    // una finestra senza cornice, e senza cornice su Windows non c'è più la
+    // croce per chiudere — l'app diventa inchiudibile. Vale per ogni uscita
+    // (Esc, la freccia indietro, «Torna ai canali», il tasto di sistema),
+    // perciò sta qui e non su ciascun pulsante.
+    //
+    // Non si può attendere, `dispose` non è asincrona; non serve, perché la
+    // finestra non è lo stato di questo widget.
+    if (_fullscreen) Fullscreen.set(false);
     super.dispose();
   }
 
