@@ -92,6 +92,22 @@ void main() {
     }
   }
 
+  /// Apre il menu del tipo di riproduzione.
+  ///
+  /// Niente `pumpAndSettle`: il sorvegliante dello stallo e' un timer
+  /// periodico e non si assesta mai. Si aspetta l'animazione del menu a mano.
+  Future<void> apriModi(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Tipo di riproduzione'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+
+  Future<void> scegli(WidgetTester tester, String titolo) async {
+    await tester.tap(find.text(titolo).last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+
   testWidgets('il volume arriva al backend prima della open', (tester) async {
     await db.writeSetting(SettingKeys.volume, '0.3');
     await pump(tester);
@@ -253,6 +269,68 @@ void main() {
 
     await tester.tap(find.text('Rivedi'));
     await twice(tester);
+    expect(backend.opens, 2);
+  });
+  testWidgets('di default la riproduzione riprende da sola', (tester) async {
+    await pump(tester);
+
+    // Il modo si legge dal pulsante, senza doverlo aprire: prima era un'icona
+    // che cambiava solo opacita', e l'unico modo di saperlo era il tooltip.
+    expect(find.text('Riprende da sola'), findsOneWidget);
+
+    await apriModi(tester);
+    expect(
+      find.text('Se il flusso si interrompe, riparte sullo stesso canale.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Se il flusso si interrompe, si ferma e aspetta te.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('scegliere la riproduzione normale ferma i tentativi', (
+    tester,
+  ) async {
+    await pump(tester);
+    await apriModi(tester);
+    await scegli(tester, 'Riproduzione normale');
+
+    // La scelta vale subito e sopravvive al riavvio: una preferenza che va
+    // ripremuta a ogni avvio e' un comando, non una preferenza.
+    expect((await db.readSettings())[SettingKeys.autoReconnect], 'false');
+    expect(find.text('Normale'), findsOneWidget);
+
+    await flow(tester);
+    backend.emit(
+      const PlayerState(position: Duration(seconds: 3), ended: true),
+    );
+    await twice(tester);
+
+    // Il pannello compare comunque: il flusso e' caduto e va detto. Quello
+    // che non deve partire e' il tentativo automatico.
+    expect(find.text('Il flusso si è interrotto'), findsOneWidget);
+    await advance(tester, 60);
+    expect(backend.opens, 1);
+  });
+
+  testWidgets('tornare a «riprende da sola» fa ripartire i tentativi', (
+    tester,
+  ) async {
+    await db.writeSetting(SettingKeys.autoReconnect, 'false');
+    await pump(tester);
+    await apriModi(tester);
+    await scegli(tester, 'Riprende da sola');
+
+    expect((await db.readSettings())[SettingKeys.autoReconnect], 'true');
+
+    await flow(tester);
+    backend.emit(
+      const PlayerState(position: Duration(seconds: 3), ended: true),
+    );
+    await twice(tester);
+    await advance(tester, 5);
+
     expect(backend.opens, 2);
   });
 }
