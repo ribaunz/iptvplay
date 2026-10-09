@@ -1146,6 +1146,28 @@ Rimedio: forzare la rigenerazione del font. Basta una build con `--no-tree-shake
 
 La **CI non è esposta**: parte sempre da un checkout pulito, quindi non ha cache da riusare.
 
+#### Trappola: schermo intero da finestra massimizzata
+
+Trovata il 9 ottobre 2026 perché l'utente ha provato il doppio clic e non succedeva niente.
+
+`windowManager.setFullScreen(true)` su Windows porta sì la finestra a coprire il monitor, ma **salta il passaggio che toglie la cornice se la finestra era massimizzata** (`window_manager-0.5.2/windows/window_manager.cpp`: `SetAsFrameless()` sta dentro un `if (!g_maximized_before_fullscreen)`). Il risultato: la barra del titolo resta dov'è, lo schermo intero è solo nominale, e `isFullScreen()` risponde comunque `true` — quindi nemmeno l'icona del comando si accorge di nulla.
+
+Perché è insidiosa:
+
+- **A finestra normale funziona**: chi prova in sviluppo, con la finestra di default 1280×720, non la vede mai.
+- **Non c'è nessun errore**, e lo stato riletto dal plugin conferma l'esito sbagliato.
+- I **widget test non la vedono**: lì il plugin è un canale finto, e quello che si può verificare è solo *quali chiamate partono*.
+
+Rimedio, in `fullscreen_io.dart`: smassimizzare prima di entrare, e rimassimizzare uscendo. Misurato con una sonda che chiama l'API e rilegge i bordi della finestra, nei due casi:
+
+```
+finestra normale   dopo fullscreen: bounds=0,0 2560x1080 max=false  -> cornice via
+massimizzata       dopo fullscreen: bounds=0,0 2560x1080 max=true   -> cornice presente
+smassimizzata+fs   dopo fullscreen: bounds=0,0 2560x1080 max=false  -> cornice via
+```
+
+I bordi sono identici in tutti e tre i casi: **misurare la geometria non basta**, bisogna guardare la cornice.
+
 
 ---
 
