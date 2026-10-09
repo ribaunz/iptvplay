@@ -230,6 +230,68 @@ void main() {
     expect(backend.opens, 1);
   });
 
+  testWidgets('un canale lento che poi parte si riprende il suo pannello', (
+    tester,
+  ) async {
+    await pump(tester);
+
+    // Venti secondi sono una supposizione, non una misura: questo canale li
+    // supera e poi si aggancia lo stesso.
+    for (var i = 0; i < 12; i++) {
+      backend.emit(const PlayerState(buffering: true));
+      await advance(tester, 2);
+    }
+    expect(find.text('Il canale non parte'), findsOneWidget);
+
+    backend.emit(const PlayerState(playing: true, videoSize: Size(1920, 1080)));
+    await twice(tester);
+
+    // Il verdetto era nostro ed era sbagliato: va ritirato da solo, senza che
+    // sia chi sta già guardando a doverlo chiudere a mano.
+    expect(find.text('Il canale non parte'), findsNothing);
+    expect(find.textContaining('Nessun dato dal provider'), findsNothing);
+    // Ritirarlo non vuol dire riaprire: il canale è quello di prima.
+    expect(backend.opens, 1);
+  });
+
+  testWidgets('anche la sola posizione che avanza ritira il verdetto', (
+    tester,
+  ) async {
+    await pump(tester);
+
+    for (var i = 0; i < 12; i++) {
+      backend.emit(const PlayerState(buffering: true));
+      await advance(tester, 2);
+    }
+    expect(find.text('Il canale non parte'), findsOneWidget);
+
+    // Nessun fotogramma dichiarato, ma il tempo scorre: il flusso c'è.
+    backend.emit(
+      const PlayerState(playing: true, position: Duration(seconds: 1)),
+    );
+    await twice(tester);
+
+    expect(find.text('Il canale non parte'), findsNothing);
+    expect(backend.opens, 1);
+  });
+
+  testWidgets('un errore vero del motore non si cancella da solo', (
+    tester,
+  ) async {
+    backend.failOnOpen = true;
+    await pump(tester);
+    await twice(tester);
+    expect(find.text('Il canale non parte'), findsOneWidget);
+
+    // Qui il pannello non è una nostra supposizione a tempo: è il motore che
+    // ha detto di no. Un fotogramma in arrivo non lo smentisce, e toglierlo
+    // nasconderebbe un guasto invece di risolverlo.
+    backend.emit(const PlayerState(playing: true, videoSize: Size(1920, 1080)));
+    await twice(tester);
+
+    expect(find.text('Il canale non parte'), findsOneWidget);
+  });
+
   testWidgets('un video che si vede non è mai dichiarato fermo', (
     tester,
   ) async {
