@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -419,6 +421,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (_controlsVisible) _scheduleHide();
   }
 
+  /// Pixel di rotella gia' accumulati e non ancora diventati uno scatto.
+  ///
+  /// La rotella non manda «uno scatto» ma una quantita' di pixel: misurata
+  /// su Windows, uno scatto vale 100. Un trackpad ne manda molti piccoli, e
+  /// senza accumulo un colpo solo porterebbe il volume da zero a tutto.
+  double _rotella = 0;
+
+  /// Quanti pixel di rotella valgono un gradino di volume.
+  static const _rotellaPerScatto = 100.0;
+
+  /// La rotella alza e abbassa il volume.
+  ///
+  /// In su e' il verso naturale per «di piu'», e in su la rotella manda
+  /// pixel **negativi**: e' lo stesso verso con cui scorre una lista.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final dy = event.scrollDelta.dy;
+    if (dy == 0) return;
+    // Cambiando verso si riparte da zero: i pixel avanzati dal verso opposto
+    // renderebbero il primo scatto indietro piu' corto degli altri.
+    if (_rotella != 0 && _rotella.sign != dy.sign) _rotella = 0;
+    _rotella += dy;
+    while (_rotella.abs() >= _rotellaPerScatto) {
+      final su = _rotella < 0;
+      _rotella += su ? _rotellaPerScatto : -_rotellaPerScatto;
+      _nudgeVolume(su ? 0.05 : -0.05);
+    }
+  }
+
   void _nudgeVolume(double delta) {
     final s = ref.read(settingsProvider);
     ref.read(settingsProvider.notifier).setVolume(s.volume + delta);
@@ -470,44 +501,49 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           }
           return KeyEventResult.ignored;
         },
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // I gesti stanno **sotto** ai comandi, non attorno a tutto: un
-            // riconoscitore di doppio tocco in cima allo stack terrebbe aperta
-            // l'arena per 300 ms a ogni clic, e ogni pulsante del player
-            // risponderebbe in ritardo in attesa di un secondo clic che quasi
-            // mai arriva.
-            GestureDetector(
-              onTap: _toggleControls,
-              // Registrato solo dove lo schermo intero esiste davvero.
-              onDoubleTap: Fullscreen.isSupported ? _toggleFullscreen : null,
-              behavior: HitTestBehavior.opaque,
-              child:
-                  _backend?.buildView(context) ??
-                  const ColoredBox(color: Colors.black),
-            ),
-            if (_cast.isActive || _cast.state == CastState.connecting)
-              _castOverlay(),
-            if (_cast.state == CastState.error) _castErrorPanel(),
-            if (_finished) _finishedPanel(),
-            if (!_finished && _interrupted) _interruptionPanel(),
-            if (!_finished && !_interrupted && _failure != null)
-              _failurePanel(),
-            if (_failure == null &&
-                !_interrupted &&
-                !_finished &&
-                _state.buffering)
-              _bufferingHint(),
-            AnimatedOpacity(
-              opacity: _controlsVisible ? 1 : 0,
-              duration: const Duration(milliseconds: 180),
-              child: IgnorePointer(
-                ignoring: !_controlsVisible,
-                child: _controls(),
+        child: Listener(
+          // La rotella vale su tutto il player, comandi compresi: cercare il
+          // punto giusto dove girarla sarebbe un gioco di mira.
+          onPointerSignal: _onPointerSignal,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // I gesti stanno **sotto** ai comandi, non attorno a tutto: un
+              // riconoscitore di doppio tocco in cima allo stack terrebbe aperta
+              // l'arena per 300 ms a ogni clic, e ogni pulsante del player
+              // risponderebbe in ritardo in attesa di un secondo clic che quasi
+              // mai arriva.
+              GestureDetector(
+                onTap: _toggleControls,
+                // Registrato solo dove lo schermo intero esiste davvero.
+                onDoubleTap: Fullscreen.isSupported ? _toggleFullscreen : null,
+                behavior: HitTestBehavior.opaque,
+                child:
+                    _backend?.buildView(context) ??
+                    const ColoredBox(color: Colors.black),
               ),
-            ),
-          ],
+              if (_cast.isActive || _cast.state == CastState.connecting)
+                _castOverlay(),
+              if (_cast.state == CastState.error) _castErrorPanel(),
+              if (_finished) _finishedPanel(),
+              if (!_finished && _interrupted) _interruptionPanel(),
+              if (!_finished && !_interrupted && _failure != null)
+                _failurePanel(),
+              if (_failure == null &&
+                  !_interrupted &&
+                  !_finished &&
+                  _state.buffering)
+                _bufferingHint(),
+              AnimatedOpacity(
+                opacity: _controlsVisible ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: _controls(),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

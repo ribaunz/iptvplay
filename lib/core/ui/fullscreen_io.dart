@@ -20,7 +20,34 @@ Future<bool> isOn() async {
   return windowManager.isFullScreen();
 }
 
+/// La finestra era massimizzata quando siamo entrati a schermo intero.
+///
+/// Serve a rimetterla com'era all'uscita: senza, si torna a una finestra
+/// piccola che non e' quella da cui si era partiti.
+bool _eraMassimizzata = false;
+
 Future<void> set(bool value) async {
   if (!isSupported) return;
-  await windowManager.setFullScreen(value);
+
+  // Su Windows il plugin, se la finestra e' massimizzata, salta il passaggio
+  // che toglie la cornice: la barra del titolo resta al suo posto mentre
+  // `isFullScreen()` risponde comunque «sì». Il risultato è un doppio clic
+  // che a occhio non fa niente. Si smassimizza prima, e si rimassimizza
+  // all'uscita.
+  if (!Platform.isWindows) {
+    await windowManager.setFullScreen(value);
+    return;
+  }
+
+  if (value) {
+    _eraMassimizzata = await windowManager.isMaximized();
+    if (_eraMassimizzata) await windowManager.unmaximize();
+    await windowManager.setFullScreen(true);
+  } else {
+    await windowManager.setFullScreen(false);
+    if (_eraMassimizzata) {
+      _eraMassimizzata = false;
+      await windowManager.maximize();
+    }
+  }
 }
