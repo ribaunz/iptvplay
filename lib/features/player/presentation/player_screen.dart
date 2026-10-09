@@ -91,6 +91,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   int _noStartTicks = 0;
 
+  /// Il fallimento che si sta mostrando è il verdetto del sorvegliante, non un
+  /// errore del motore.
+  ///
+  /// I venti secondi sono una supposizione, non una misura: un canale lento ad
+  /// agganciarsi li supera e poi parte lo stesso. Il verdetto va quindi
+  /// ritirato alla prima prova di vita, e per ritirarlo bisogna sapere che era
+  /// nostro — un errore vero del motore non si cancella da solo.
+  bool _noStartDeclared = false;
+
   /// La posizione è avanzata almeno una volta da quando il canale è aperto.
   ///
   /// È la guardia che rende innocua la sorveglianza dello stallo: su certi
@@ -190,6 +199,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _tickPosition = Duration.zero;
     _stallTicks = 0;
     _noStartTicks = 0;
+    _noStartDeclared = false;
     _sawProgress = false;
 
     _sub = backend.stateStream.listen(_onState);
@@ -220,10 +230,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _lastPosition = s.position;
       _sawProgress = true;
     }
+    // Le stesse due prove con cui il sorvegliante decide di tacere: la
+    // posizione che avanza, oppure un fotogramma che si vede.
+    final vivo = advanced || s.hasVideo;
 
     setState(() {
       _state = s;
-      if (s.error != null) _failure = s.error;
+      if (s.error != null) {
+        _failure = s.error;
+      } else if (vivo && _noStartDeclared) {
+        // Il flusso ha appena smentito il verdetto: il pannello se ne va da
+        // solo. Lasciarlo lì coprirebbe un video che sta andando, e
+        // costringerebbe a chiuderlo a mano chi ormai sta già guardando.
+        _noStartDeclared = false;
+        _failure = null;
+      }
       if (advanced && _interrupted) {
         // Il flusso è tornato: si azzera la scala dei tentativi, altrimenti la
         // prossima caduta partirebbe già dall'attesa più lunga.
@@ -266,10 +287,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (_state.hasVideo || _failure != null) return;
       if (++_noStartTicks < _noStartTicksLimit) return;
       _noStartTicks = 0;
-      setState(
-        () => _failure =
-            'Nessun dato dal provider dopo ${_noStartTicksLimit * 2} secondi.',
-      );
+      setState(() {
+        _noStartDeclared = true;
+        _failure =
+            'Nessun dato dal provider dopo ${_noStartTicksLimit * 2} secondi.';
+      });
       return;
     }
 
