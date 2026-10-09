@@ -725,7 +725,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             // il testo ingrandito dalle impostazioni di sistema, sborderebbe.
             const Expanded(
               child: Text(
-                'Riconnetti da solo quando il flusso cade',
+                'Riprende da sola sullo stesso canale',
                 style: TextStyle(fontSize: 13, color: AppColors.muted),
               ),
             ),
@@ -947,7 +947,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
               const Spacer(),
               _volumeControl(showFader: roomForFader),
-              _autoReconnectButton(),
+              _playbackModeButton(showLabel: roomForFader),
               // Su web non esiste un secondo motore da scegliere: fvp e
               // media_kit sono entrambi nativi. Mostrare il comando
               // prometterebbe un rimedio che li' non c'e'.
@@ -1056,22 +1056,116 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// l'opzione è attiva: in questo tema l'ambra segnala qualcosa che sta
   /// succedendo, e l'opzione è attiva di default, quindi marcarla
   /// significherebbe un accento acceso in ogni sessione per nessun motivo.
-  Widget _autoReconnectButton() {
+  /// Che cosa deve succedere quando il flusso si interrompe.
+  ///
+  /// Prima era un'icona che cambiava solo opacita': non diceva ne' cosa fosse
+  /// ne' in quale dei due modi ti trovassi, e l'unico modo di saperlo era
+  /// fermarsi col puntatore sopra. Qui i due modi hanno un nome e una frase
+  /// che dice cosa fanno, perche' un comando che si capisce solo provandolo
+  /// non e' un comando.
+  Widget _playbackModeButton({required bool showLabel}) {
     final auto = ref.watch(settingsProvider).autoReconnect;
     final working = _retryTimer != null || _reconnecting;
-    return IconButton(
-      onPressed: () =>
-          ref.read(settingsProvider.notifier).setAutoReconnect(!auto),
-      icon: Icon(
-        Icons.autorenew_rounded,
-        size: 20,
-        color: working
-            ? AppColors.tally
-            : AppColors.muted.withValues(alpha: auto ? 1 : 0.45),
+    // L'ambra qui significa «ci sta lavorando adesso», non «e' attivo»: un
+    // accento che sta sempre acceso smette di dire qualcosa.
+    final color = working ? AppColors.tally : AppColors.muted;
+    final icona = auto ? Icons.autorenew_rounded : Icons.trending_flat_rounded;
+
+    return PopupMenuButton<bool>(
+      tooltip: 'Tipo di riproduzione',
+      initialValue: auto,
+      position: PopupMenuPosition.over,
+      color: AppColors.panel,
+      shape: RoundedRectangleBorder(
+        borderRadius: kBorder,
+        side: const BorderSide(color: AppColors.line),
       ),
-      tooltip: auto
-          ? 'Riconnessione automatica attiva'
-          : 'Riconnessione automatica disattivata',
+      onSelected: (v) =>
+          ref.read(settingsProvider.notifier).setAutoReconnect(v),
+      itemBuilder: (context) => [
+        _modeItem(
+          value: true,
+          scelto: auto,
+          icona: Icons.autorenew_rounded,
+          titolo: 'Riprende da sola',
+          dettaglio: 'Se il flusso si interrompe, riparte sullo stesso canale.',
+        ),
+        _modeItem(
+          value: false,
+          scelto: !auto,
+          icona: Icons.trending_flat_rounded,
+          titolo: 'Riproduzione normale',
+          dettaglio: 'Se il flusso si interrompe, si ferma e aspetta te.',
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Gap.sm,
+          vertical: Gap.sm,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icona, size: 20, color: color),
+            if (showLabel) ...[
+              const SizedBox(width: Gap.xs),
+              Text(
+                auto ? 'Riprende da sola' : 'Normale',
+                style: TextStyle(fontSize: 12, color: color),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<bool> _modeItem({
+    required bool value,
+    required bool scelto,
+    required IconData icona,
+    required String titolo,
+    required String dettaglio,
+  }) {
+    return PopupMenuItem<bool>(
+      value: value,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            scelto ? Icons.check_rounded : icona,
+            size: 18,
+            color: scelto ? AppColors.tally : AppColors.muted,
+          ),
+          const SizedBox(width: Gap.md),
+          // Elastica: le frasi sono lunghe, e con il testo ingrandito dalle
+          // impostazioni di sistema sborderebbero.
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  titolo,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: scelto ? AppColors.text : AppColors.muted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  dettaglio,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.muted,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
