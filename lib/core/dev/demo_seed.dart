@@ -122,6 +122,7 @@ Future<void> seedDemoData(AppDatabase db) async {
     );
   }
   await db.batch((b) => b.insertAll(db.channels, channels));
+  await _seedOnDemand(db, playlistId, firstSortOrder: channels.length);
 
   // EPG: un programma in corso e uno successivo, con durate diverse così il
   // filetto di avanzamento mostra frazioni realistiche.
@@ -166,6 +167,32 @@ Future<void> seedDemoData(AppDatabase db) async {
   await db.batch((b) => b.insertAll(db.programmes, programmes));
 
   await ChannelsDaoRefresh(db).refresh(playlistId);
+
+  // Due liste di sola anagrafica, senza canali.
+  //
+  // Non servono a navigare ma a **disegnare**: con una lista sola non si vede
+  // se i conteggi si incolonnano, che e' il motivo per cui la schermata liste
+  // usa cifre tabulari. Conteggi di tre ordini di grandezza diversi, e una mai
+  // aggiornata, coprono i casi che il layout deve reggere.
+  await db.batch(
+    (b) => b.insertAll(db.playlists, [
+      PlaylistsCompanion.insert(
+        name: 'Calcio estero',
+        type: PlaylistType.xtream,
+        host: const Value('portale.invalid'),
+        port: const Value(8080),
+        username: const Value('demo'),
+        channelCount: const Value(1245),
+      ),
+      PlaylistsCompanion.insert(
+        name: 'Backup di famiglia',
+        type: PlaylistType.m3u,
+        url: const Value('famiglia.m3u'),
+        channelCount: const Value(12),
+        lastSyncAt: Value(now.subtract(const Duration(days: 40))),
+      ),
+    ]),
+  );
 }
 
 /// Piccolo aiuto per ricalcolare i conteggi senza esporre il DAO qui.
@@ -187,4 +214,93 @@ class ChannelsDaoRefresh {
       [playlistId],
     );
   }
+}
+
+/// Film e serie, perche' una lista di soli canali live non mostra la divisione.
+///
+/// Senza contenuti su richiesta non c'e' modo di giudicare ne' la divisione
+/// diretta/film/serie ne' la vista a copertine: comparirebbero un comando
+/// disabilitato e una griglia vuota. I titoli sono volutamente di lunghezze
+/// diverse, perche' il troncamento a due righe e' il caso che rompe le griglie.
+///
+/// Le locandine puntano a `demo/poster-N.png`, relative all'origine della
+/// pagina: se i file non ci sono — ed e' il caso dell'app spedita, dove questo
+/// seed non gira affatto — il riquadro ripiega sull'iniziale, che e' lo stesso
+/// comportamento che hanno le liste vere con le locandine rotte.
+Future<void> _seedOnDemand(
+  AppDatabase db,
+  int playlistId, {
+  required int firstSortOrder,
+}) async {
+  const films = [
+    'Il padrino',
+    'Heat - La sfida',
+    'C’era una volta in America',
+    'Nuovo Cinema Paradiso',
+    'La grande bellezza',
+    'Il buono, il brutto, il cattivo',
+    'Perfetti sconosciuti',
+    'Chiamami col tuo nome',
+    'Lo chiamavano Jeeg Robot',
+    'Il traditore',
+    'La vita è bella',
+    'Ladri di biciclette',
+  ];
+  const serie = [
+    'I Soprano S01E01',
+    'I Soprano S01E02',
+    'I Soprano S01E03',
+    'Romanzo criminale S02E04',
+    'Gomorra S04E11',
+    'L’amica geniale S03E02',
+  ];
+
+  Future<int> group(String name, int sortOrder) => db
+      .into(db.groups)
+      .insert(
+        GroupsCompanion.insert(
+          playlistId: playlistId,
+          name: name,
+          sortOrder: Value(sortOrder),
+        ),
+      );
+
+  final gFilm = await group('Film — novità', 100);
+  final gSerie = await group('Serie TV', 101);
+
+  var sort = firstSortOrder;
+  final rows = <ChannelsCompanion>[];
+
+  for (var i = 0; i < films.length; i++) {
+    rows.add(
+      ChannelsCompanion.insert(
+        playlistId: playlistId,
+        groupId: Value(gFilm),
+        name: films[i],
+        // Il primo punta a un file locale: mettendo un video qualsiasi in
+        // `build/web/demo/clip.mp4` il player ha qualcosa da riprodurre
+        // davvero, ed e' l'unico modo di guardare la barra di avanzamento
+        // mentre avanza. Se il file non c'e' si comporta come gli altri.
+        url: i == 0 ? 'demo/clip.mp4' : 'http://demo.invalid/movie/u/p/$i.mkv',
+        logoUrl: Value('demo/poster-${i % 6 + 1}.png'),
+        kind: const Value(ChannelKind.vod),
+        sortOrder: Value(sort++),
+      ),
+    );
+  }
+  for (var i = 0; i < serie.length; i++) {
+    rows.add(
+      ChannelsCompanion.insert(
+        playlistId: playlistId,
+        groupId: Value(gSerie),
+        name: serie[i],
+        url: 'http://demo.invalid/series/u/p/$i.mkv',
+        logoUrl: Value('demo/poster-${(i + 3) % 6 + 1}.png'),
+        kind: const Value(ChannelKind.series),
+        sortOrder: Value(sort++),
+      ),
+    );
+  }
+
+  await db.batch((b) => b.insertAll(db.channels, rows));
 }

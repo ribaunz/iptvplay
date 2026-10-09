@@ -139,5 +139,93 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      # Runner.entitlements non e' collegato al target (il perche' sta dentro al
+      # file), quindi nulla lo compila e un plist malformato si scoprirebbe solo
+      # il giorno in cui serve davvero. plutil costa un secondo.
+      - name: Verifica i plist di iOS
+        run: plutil -lint ios/Runner/Info.plist ios/Runner/Runner.entitlements
+
       - run: flutter pub get
       - run: flutter build ios --release --no-codesign
+
+      # IPA non firmato.
+      #
+      # Un .ipa e' solo uno zip con l'app dentro una cartella Payload/. Farlo
+      # qui e' quello che rende il job utile a chi non ha un Mac: Sideloadly o
+      # AltStore, su Windows, lo rifirmano con un Apple ID qualunque e lo
+      # installano sull'iPhone via USB. Con un account gratuito dura 7 giorni.
+      #
+      # `xcodebuild -exportArchive` non e' un'alternativa: pretende certificati
+      # e profili, che e' esattamente cio' che qui non c'e'.
+      # Il percorso non e' fissato a memoria: se Flutter cambia layout, il job
+      # lo dice elencando cosa ha trovato, invece di caricare un archivio vuoto.
+      - name: Impacchetta un IPA non firmato
+        run: |
+          set -euo pipefail
+          APP=$(find build/ios -maxdepth 3 -type d -name '*.app' -path '*iphoneos*' -print -quit)
+          if [ -z "$APP" ]; then
+            echo "::error::nessun .app per dispositivo trovato sotto build/ios"
+            find build/ios -maxdepth 3 -type d -name '*.app' || true
+            exit 1
+          fi
+          echo "trovato: $APP"
+          rm -rf /tmp/Payload && mkdir -p /tmp/Payload
+          cp -R "$APP" /tmp/Payload/
+          (cd /tmp && zip -qry iptvplay-unsigned.ipa Payload)
+          mv /tmp/iptvplay-unsigned.ipa .
+          du -h iptvplay-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: iptvplay-unsigned.ipa
+          if-no-files-found: error
+
+      # Build per il Simulatore, per chi un Mac ce l'ha.
+      #
+      # Architettura e SDK sono diversi da quelli del dispositivo, quindi non e'
+      # una ripetizione: e' l'unica configurazione che intercetta le rotture
+      # specifiche del simulatore prima che lo faccia una persona.
+      #
+      # Attenzione a cosa NON si puo' provare li': niente riproduzione video
+      # affidabile (libmpv in simulatore e' inaffidabile) e niente multicast,
+      # quindi ne' player ne' trasmissione al televisore.
+      # `--simulator` implica gia' il debug mode (il release non e' supportato
+      # in simulatore), ma lo si scrive per non doverlo ricordare.
+      - name: Build per Simulatore
+        run: |
+          set -euo pipefail
+          # Il build release gira prima, nella stessa `build/ios`, e lascia i
+          # file copiati da Xcode in sola lettura. Il build per simulatore
+          # riusa quella cartella e impellerc non riesce a riscrivere gli
+          # shader di Material:
+          #   impellerc failure: Could not write file to
+          #   .../App.framework/flutter_assets/shaders/ink_sparkle.frag
+          # Si toglie di mezzo la cartella del simulatore e si rendono
+          # scrivibili i resti, invece di un `flutter clean` che rifarebbe da
+          # zero anche quello che e' appena stato compilato.
+          rm -rf build/ios/Debug-iphonesimulator
+          chmod -R u+w build/ios || true
+          flutter build ios --simulator --debug
+
+      # Lo zip si fa a mano di proposito: upload-artifact, puntato a una
+      # cartella .app, ne carica il *contenuto* e perde l'involucro — che e'
+      # esattamente cio' che `xcrun simctl install` pretende.
+      - name: Impacchetta il bundle per simulatore
+        run: |
+          set -euo pipefail
+          APP=$(find build/ios -maxdepth 3 -type d -name '*.app' -path '*imulator*' -print -quit)
+          if [ -z "$APP" ]; then
+            echo "::error::nessun .app per simulatore trovato sotto build/ios"
+            find build/ios -maxdepth 3 -type d -name '*.app' || true
+            exit 1
+          fi
+          echo "trovato: $APP"
+          ditto -ck --keepParent "$APP" iptvplay-simulator.zip
+          du -h iptvplay-simulator.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: iptvplay-simulator.zip
+          if-no-files-found: error

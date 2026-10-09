@@ -23,6 +23,13 @@ class Playlists extends Table {
   IntColumn get port => integer().nullable()();
   TextColumn get username => text().nullable()();
 
+  /// `User-Agent` con cui contattare questo provider.
+  ///
+  /// `null` significa "usa il default dell'app", non "non mandare nulla":
+  /// esiste per i pannelli che pretendono una stringa propria, che né VLC né un
+  /// browser coprono.
+  TextColumn get userAgent => text().nullable()();
+
   TextColumn get epgUrl => text().nullable()();
   DateTimeColumn get lastSyncAt => dateTime().nullable()();
   IntColumn get channelCount => integer().withDefault(const Constant(0))();
@@ -47,6 +54,13 @@ class Groups extends Table {
 @TableIndex(
   name: 'idx_channels_playlist_group',
   columns: {#playlistId, #groupId, #sortOrder},
+)
+// Il filtro per natura del contenuto e' la query calda della navigazione: senza
+// questo indice, scegliere «Film» su una lista da 50k canali costa uno scan
+// completo a ogni pagina, non solo alla prima.
+@TableIndex(
+  name: 'idx_channels_playlist_kind',
+  columns: {#playlistId, #kind, #sortOrder},
 )
 @TableIndex(name: 'idx_channels_tvg', columns: {#tvgId})
 class Channels extends Table {
@@ -136,4 +150,21 @@ class WatchHistory extends Table {
       integer().references(Channels, #id, onDelete: KeyAction.cascade)();
   DateTimeColumn get watchedAt => dateTime()();
   IntColumn get positionMs => integer().withDefault(const Constant(0))();
+}
+
+/// Preferenze dell'utente, come coppie chiave/valore.
+///
+/// Chiave/valore e non una colonna per preferenza: ogni preferenza nuova
+/// costerebbe altrimenti una migrazione, e questa tabella nasce proprio per
+/// smettere di dimenticare scelte che l'utente ha fatto una volta — il volume,
+/// la riconnessione automatica, la forma dell'elenco.
+///
+/// Il valore e' testo sempre: sono poche righe, lette una volta all'avvio, e un
+/// tipo per preferenza complicherebbe lo schema per un guadagno nullo.
+class Settings extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
 }

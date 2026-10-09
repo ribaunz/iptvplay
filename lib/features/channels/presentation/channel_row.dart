@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
+import '../../../core/storage/tables.dart';
 
 /// Dati necessari a disegnare una riga di palinsesto.
 class ChannelRowData {
@@ -93,12 +94,16 @@ class ChannelRow extends StatelessWidget {
         ? '?'
         : data.channel.name.trim().characters.first.toUpperCase();
 
+    // Alloggiamento, non riquadro: fondo incassato e filetto. Un logo che
+    // manca deve leggersi come uno slot vuoto, non come un caricamento
+    // fallito — e i provider ne servono pochi e spesso rotti.
     return Container(
       width: 32,
       height: 32,
       decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(4),
+        color: AppColors.edge,
+        borderRadius: kBorder,
+        border: Border.all(color: AppColors.lineSoft),
       ),
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,
@@ -142,19 +147,25 @@ class ChannelRow extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
         ),
-        const SizedBox(height: 2),
-        Text(
-          now?.title ?? 'Nessuna guida programmi',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 13,
-            color: now == null
-                ? AppColors.muted.withValues(alpha: 0.6)
-                : AppColors.muted,
-            fontStyle: now == null ? FontStyle.italic : FontStyle.normal,
+        // «Nessuna guida programmi» vale per una diretta, dove il palinsesto
+        // dovrebbe esserci. Sotto un film sarebbe la segnalazione di
+        // un'assenza che non ha senso cercare: i contenuti su richiesta non
+        // hanno orari.
+        if (data.channel.kind == ChannelKind.live) ...[
+          const SizedBox(height: 2),
+          Text(
+            now?.title ?? 'Nessuna guida programmi',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              color: now == null
+                  ? AppColors.muted.withValues(alpha: 0.6)
+                  : AppColors.muted,
+              fontStyle: now == null ? FontStyle.italic : FontStyle.normal,
+            ),
           ),
-        ),
+        ],
         // Avanzamento e orario formano un'unità: il filetto è un misuratore
         // corto, non una riga che attraversa lo schermo, e i numeri che lo
         // spiegano gli stanno accanto.

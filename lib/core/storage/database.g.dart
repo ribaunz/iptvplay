@@ -82,6 +82,17 @@ class $PlaylistsTable extends Playlists
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _userAgentMeta = const VerificationMeta(
+    'userAgent',
+  );
+  @override
+  late final GeneratedColumn<String> userAgent = GeneratedColumn<String>(
+    'user_agent',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _epgUrlMeta = const VerificationMeta('epgUrl');
   @override
   late final GeneratedColumn<String> epgUrl = GeneratedColumn<String>(
@@ -138,6 +149,7 @@ class $PlaylistsTable extends Playlists
     host,
     port,
     username,
+    userAgent,
     epgUrl,
     lastSyncAt,
     channelCount,
@@ -188,6 +200,12 @@ class $PlaylistsTable extends Playlists
       context.handle(
         _usernameMeta,
         username.isAcceptableOrUnknown(data['username']!, _usernameMeta),
+      );
+    }
+    if (data.containsKey('user_agent')) {
+      context.handle(
+        _userAgentMeta,
+        userAgent.isAcceptableOrUnknown(data['user_agent']!, _userAgentMeta),
       );
     }
     if (data.containsKey('epg_url')) {
@@ -259,6 +277,10 @@ class $PlaylistsTable extends Playlists
         DriftSqlType.string,
         data['${effectivePrefix}username'],
       ),
+      userAgent: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_agent'],
+      ),
       epgUrl: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}epg_url'],
@@ -297,6 +319,13 @@ class Playlist extends DataClass implements Insertable<Playlist> {
   final String? host;
   final int? port;
   final String? username;
+
+  /// `User-Agent` con cui contattare questo provider.
+  ///
+  /// `null` significa "usa il default dell'app", non "non mandare nulla":
+  /// esiste per i pannelli che pretendono una stringa propria, che né VLC né un
+  /// browser coprono.
+  final String? userAgent;
   final String? epgUrl;
   final DateTime? lastSyncAt;
   final int channelCount;
@@ -309,6 +338,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     this.host,
     this.port,
     this.username,
+    this.userAgent,
     this.epgUrl,
     this.lastSyncAt,
     required this.channelCount,
@@ -336,6 +366,9 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     if (!nullToAbsent || username != null) {
       map['username'] = Variable<String>(username);
     }
+    if (!nullToAbsent || userAgent != null) {
+      map['user_agent'] = Variable<String>(userAgent);
+    }
     if (!nullToAbsent || epgUrl != null) {
       map['epg_url'] = Variable<String>(epgUrl);
     }
@@ -358,6 +391,9 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       username: username == null && nullToAbsent
           ? const Value.absent()
           : Value(username),
+      userAgent: userAgent == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userAgent),
       epgUrl: epgUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(epgUrl),
@@ -384,6 +420,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       host: serializer.fromJson<String?>(json['host']),
       port: serializer.fromJson<int?>(json['port']),
       username: serializer.fromJson<String?>(json['username']),
+      userAgent: serializer.fromJson<String?>(json['userAgent']),
       epgUrl: serializer.fromJson<String?>(json['epgUrl']),
       lastSyncAt: serializer.fromJson<DateTime?>(json['lastSyncAt']),
       channelCount: serializer.fromJson<int>(json['channelCount']),
@@ -403,6 +440,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       'host': serializer.toJson<String?>(host),
       'port': serializer.toJson<int?>(port),
       'username': serializer.toJson<String?>(username),
+      'userAgent': serializer.toJson<String?>(userAgent),
       'epgUrl': serializer.toJson<String?>(epgUrl),
       'lastSyncAt': serializer.toJson<DateTime?>(lastSyncAt),
       'channelCount': serializer.toJson<int>(channelCount),
@@ -418,6 +456,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     Value<String?> host = const Value.absent(),
     Value<int?> port = const Value.absent(),
     Value<String?> username = const Value.absent(),
+    Value<String?> userAgent = const Value.absent(),
     Value<String?> epgUrl = const Value.absent(),
     Value<DateTime?> lastSyncAt = const Value.absent(),
     int? channelCount,
@@ -430,6 +469,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     host: host.present ? host.value : this.host,
     port: port.present ? port.value : this.port,
     username: username.present ? username.value : this.username,
+    userAgent: userAgent.present ? userAgent.value : this.userAgent,
     epgUrl: epgUrl.present ? epgUrl.value : this.epgUrl,
     lastSyncAt: lastSyncAt.present ? lastSyncAt.value : this.lastSyncAt,
     channelCount: channelCount ?? this.channelCount,
@@ -444,6 +484,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       host: data.host.present ? data.host.value : this.host,
       port: data.port.present ? data.port.value : this.port,
       username: data.username.present ? data.username.value : this.username,
+      userAgent: data.userAgent.present ? data.userAgent.value : this.userAgent,
       epgUrl: data.epgUrl.present ? data.epgUrl.value : this.epgUrl,
       lastSyncAt: data.lastSyncAt.present
           ? data.lastSyncAt.value
@@ -465,6 +506,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
           ..write('host: $host, ')
           ..write('port: $port, ')
           ..write('username: $username, ')
+          ..write('userAgent: $userAgent, ')
           ..write('epgUrl: $epgUrl, ')
           ..write('lastSyncAt: $lastSyncAt, ')
           ..write('channelCount: $channelCount, ')
@@ -482,6 +524,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     host,
     port,
     username,
+    userAgent,
     epgUrl,
     lastSyncAt,
     channelCount,
@@ -498,6 +541,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
           other.host == this.host &&
           other.port == this.port &&
           other.username == this.username &&
+          other.userAgent == this.userAgent &&
           other.epgUrl == this.epgUrl &&
           other.lastSyncAt == this.lastSyncAt &&
           other.channelCount == this.channelCount &&
@@ -512,6 +556,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
   final Value<String?> host;
   final Value<int?> port;
   final Value<String?> username;
+  final Value<String?> userAgent;
   final Value<String?> epgUrl;
   final Value<DateTime?> lastSyncAt;
   final Value<int> channelCount;
@@ -524,6 +569,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     this.host = const Value.absent(),
     this.port = const Value.absent(),
     this.username = const Value.absent(),
+    this.userAgent = const Value.absent(),
     this.epgUrl = const Value.absent(),
     this.lastSyncAt = const Value.absent(),
     this.channelCount = const Value.absent(),
@@ -537,6 +583,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     this.host = const Value.absent(),
     this.port = const Value.absent(),
     this.username = const Value.absent(),
+    this.userAgent = const Value.absent(),
     this.epgUrl = const Value.absent(),
     this.lastSyncAt = const Value.absent(),
     this.channelCount = const Value.absent(),
@@ -551,6 +598,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     Expression<String>? host,
     Expression<int>? port,
     Expression<String>? username,
+    Expression<String>? userAgent,
     Expression<String>? epgUrl,
     Expression<DateTime>? lastSyncAt,
     Expression<int>? channelCount,
@@ -564,6 +612,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
       if (host != null) 'host': host,
       if (port != null) 'port': port,
       if (username != null) 'username': username,
+      if (userAgent != null) 'user_agent': userAgent,
       if (epgUrl != null) 'epg_url': epgUrl,
       if (lastSyncAt != null) 'last_sync_at': lastSyncAt,
       if (channelCount != null) 'channel_count': channelCount,
@@ -579,6 +628,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     Value<String?>? host,
     Value<int?>? port,
     Value<String?>? username,
+    Value<String?>? userAgent,
     Value<String?>? epgUrl,
     Value<DateTime?>? lastSyncAt,
     Value<int>? channelCount,
@@ -592,6 +642,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
       host: host ?? this.host,
       port: port ?? this.port,
       username: username ?? this.username,
+      userAgent: userAgent ?? this.userAgent,
       epgUrl: epgUrl ?? this.epgUrl,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       channelCount: channelCount ?? this.channelCount,
@@ -625,6 +676,9 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     if (username.present) {
       map['username'] = Variable<String>(username.value);
     }
+    if (userAgent.present) {
+      map['user_agent'] = Variable<String>(userAgent.value);
+    }
     if (epgUrl.present) {
       map['epg_url'] = Variable<String>(epgUrl.value);
     }
@@ -650,6 +704,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
           ..write('host: $host, ')
           ..write('port: $port, ')
           ..write('username: $username, ')
+          ..write('userAgent: $userAgent, ')
           ..write('epgUrl: $epgUrl, ')
           ..write('lastSyncAt: $lastSyncAt, ')
           ..write('channelCount: $channelCount, ')
@@ -3279,6 +3334,211 @@ class WatchHistoryCompanion extends UpdateCompanion<WatchHistoryData> {
   }
 }
 
+class $SettingsTable extends Settings with TableInfo<$SettingsTable, Setting> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SettingsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _keyMeta = const VerificationMeta('key');
+  @override
+  late final GeneratedColumn<String> key = GeneratedColumn<String>(
+    'key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _valueMeta = const VerificationMeta('value');
+  @override
+  late final GeneratedColumn<String> value = GeneratedColumn<String>(
+    'value',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [key, value];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'settings';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<Setting> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('key')) {
+      context.handle(
+        _keyMeta,
+        key.isAcceptableOrUnknown(data['key']!, _keyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_keyMeta);
+    }
+    if (data.containsKey('value')) {
+      context.handle(
+        _valueMeta,
+        value.isAcceptableOrUnknown(data['value']!, _valueMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_valueMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {key};
+  @override
+  Setting map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Setting(
+      key: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}key'],
+      )!,
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}value'],
+      )!,
+    );
+  }
+
+  @override
+  $SettingsTable createAlias(String alias) {
+    return $SettingsTable(attachedDatabase, alias);
+  }
+}
+
+class Setting extends DataClass implements Insertable<Setting> {
+  final String key;
+  final String value;
+  const Setting({required this.key, required this.value});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['key'] = Variable<String>(key);
+    map['value'] = Variable<String>(value);
+    return map;
+  }
+
+  SettingsCompanion toCompanion(bool nullToAbsent) {
+    return SettingsCompanion(key: Value(key), value: Value(value));
+  }
+
+  factory Setting.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Setting(
+      key: serializer.fromJson<String>(json['key']),
+      value: serializer.fromJson<String>(json['value']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'key': serializer.toJson<String>(key),
+      'value': serializer.toJson<String>(value),
+    };
+  }
+
+  Setting copyWith({String? key, String? value}) =>
+      Setting(key: key ?? this.key, value: value ?? this.value);
+  Setting copyWithCompanion(SettingsCompanion data) {
+    return Setting(
+      key: data.key.present ? data.key.value : this.key,
+      value: data.value.present ? data.value.value : this.value,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Setting(')
+          ..write('key: $key, ')
+          ..write('value: $value')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(key, value);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Setting && other.key == this.key && other.value == this.value);
+}
+
+class SettingsCompanion extends UpdateCompanion<Setting> {
+  final Value<String> key;
+  final Value<String> value;
+  final Value<int> rowid;
+  const SettingsCompanion({
+    this.key = const Value.absent(),
+    this.value = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SettingsCompanion.insert({
+    required String key,
+    required String value,
+    this.rowid = const Value.absent(),
+  }) : key = Value(key),
+       value = Value(value);
+  static Insertable<Setting> custom({
+    Expression<String>? key,
+    Expression<String>? value,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (key != null) 'key': key,
+      if (value != null) 'value': value,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SettingsCompanion copyWith({
+    Value<String>? key,
+    Value<String>? value,
+    Value<int>? rowid,
+  }) {
+    return SettingsCompanion(
+      key: key ?? this.key,
+      value: value ?? this.value,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (key.present) {
+      map['key'] = Variable<String>(key.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<String>(value.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SettingsCompanion(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3289,6 +3549,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ProgrammesTable programmes = $ProgrammesTable(this);
   late final $FavoritesTable favorites = $FavoritesTable(this);
   late final $WatchHistoryTable watchHistory = $WatchHistoryTable(this);
+  late final $SettingsTable settings = $SettingsTable(this);
   late final Index idxGroupsPlaylist = Index(
     'idx_groups_playlist',
     'CREATE INDEX idx_groups_playlist ON "groups" (playlist_id, sort_order)',
@@ -3296,6 +3557,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final Index idxChannelsPlaylistGroup = Index(
     'idx_channels_playlist_group',
     'CREATE INDEX idx_channels_playlist_group ON channels (playlist_id, group_id, sort_order)',
+  );
+  late final Index idxChannelsPlaylistKind = Index(
+    'idx_channels_playlist_kind',
+    'CREATE INDEX idx_channels_playlist_kind ON channels (playlist_id, kind, sort_order)',
   );
   late final Index idxChannelsTvg = Index(
     'idx_channels_tvg',
@@ -3330,8 +3595,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     programmes,
     favorites,
     watchHistory,
+    settings,
     idxGroupsPlaylist,
     idxChannelsPlaylistGroup,
+    idxChannelsPlaylistKind,
     idxChannelsTvg,
     idxEpgchanPlaylistXmltv,
     idxProgrammesChanStart,
@@ -3400,6 +3667,7 @@ typedef $$PlaylistsTableCreateCompanionBuilder = PlaylistsCompanion Function({
   Value<String?> host,
   Value<int?> port,
   Value<String?> username,
+  Value<String?> userAgent,
   Value<String?> epgUrl,
   Value<DateTime?> lastSyncAt,
   Value<int> channelCount,
@@ -3413,6 +3681,7 @@ typedef $$PlaylistsTableUpdateCompanionBuilder = PlaylistsCompanion Function({
   Value<String?> host,
   Value<int?> port,
   Value<String?> username,
+  Value<String?> userAgent,
   Value<String?> epgUrl,
   Value<DateTime?> lastSyncAt,
   Value<int> channelCount,
@@ -3522,6 +3791,11 @@ class $$PlaylistsTableFilterComposer
 
   ColumnFilters<String> get username => $composableBuilder(
     column: $table.username,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userAgent => $composableBuilder(
+    column: $table.userAgent,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3665,6 +3939,11 @@ class $$PlaylistsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get userAgent => $composableBuilder(
+    column: $table.userAgent,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get epgUrl => $composableBuilder(
     column: $table.epgUrl,
     builder: (column) => ColumnOrderings(column),
@@ -3715,6 +3994,9 @@ class $$PlaylistsTableAnnotationComposer
 
   GeneratedColumn<String> get username =>
       $composableBuilder(column: $table.username, builder: (column) => column);
+
+  GeneratedColumn<String> get userAgent =>
+      $composableBuilder(column: $table.userAgent, builder: (column) => column);
 
   GeneratedColumn<String> get epgUrl =>
       $composableBuilder(column: $table.epgUrl, builder: (column) => column);
@@ -3847,6 +4129,7 @@ class $$PlaylistsTableTableManager
                 Value<String?> host = const Value.absent(),
                 Value<int?> port = const Value.absent(),
                 Value<String?> username = const Value.absent(),
+                Value<String?> userAgent = const Value.absent(),
                 Value<String?> epgUrl = const Value.absent(),
                 Value<DateTime?> lastSyncAt = const Value.absent(),
                 Value<int> channelCount = const Value.absent(),
@@ -3859,6 +4142,7 @@ class $$PlaylistsTableTableManager
                 host: host,
                 port: port,
                 username: username,
+                userAgent: userAgent,
                 epgUrl: epgUrl,
                 lastSyncAt: lastSyncAt,
                 channelCount: channelCount,
@@ -3873,6 +4157,7 @@ class $$PlaylistsTableTableManager
                 Value<String?> host = const Value.absent(),
                 Value<int?> port = const Value.absent(),
                 Value<String?> username = const Value.absent(),
+                Value<String?> userAgent = const Value.absent(),
                 Value<String?> epgUrl = const Value.absent(),
                 Value<DateTime?> lastSyncAt = const Value.absent(),
                 Value<int> channelCount = const Value.absent(),
@@ -3885,6 +4170,7 @@ class $$PlaylistsTableTableManager
                 host: host,
                 port: port,
                 username: username,
+                userAgent: userAgent,
                 epgUrl: epgUrl,
                 lastSyncAt: lastSyncAt,
                 channelCount: channelCount,
@@ -6491,6 +6777,140 @@ typedef $$WatchHistoryTableProcessedTableManager =
       WatchHistoryData,
       PrefetchHooks Function({bool channelId})
     >;
+typedef $$SettingsTableCreateCompanionBuilder = SettingsCompanion Function({
+  required String key,
+  required String value,
+  Value<int> rowid,
+});
+typedef $$SettingsTableUpdateCompanionBuilder = SettingsCompanion Function({
+  Value<String> key,
+  Value<String> value,
+  Value<int> rowid,
+});
+
+class $$SettingsTableFilterComposer
+    extends Composer<_$AppDatabase, $SettingsTable> {
+  $$SettingsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SettingsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SettingsTable> {
+  $$SettingsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SettingsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SettingsTable> {
+  $$SettingsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get key =>
+      $composableBuilder(column: $table.key, builder: (column) => column);
+
+  GeneratedColumn<String> get value =>
+      $composableBuilder(column: $table.value, builder: (column) => column);
+}
+
+class $$SettingsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SettingsTable,
+          Setting,
+          $$SettingsTableFilterComposer,
+          $$SettingsTableOrderingComposer,
+          $$SettingsTableAnnotationComposer,
+          $$SettingsTableCreateCompanionBuilder,
+          $$SettingsTableUpdateCompanionBuilder,
+          (Setting, BaseReferences<_$AppDatabase, $SettingsTable, Setting>),
+          Setting,
+          PrefetchHooks Function()
+        > {
+  $$SettingsTableTableManager(_$AppDatabase db, $SettingsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SettingsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SettingsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SettingsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> key = const Value.absent(),
+            Value<String> value = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) => SettingsCompanion(key: key, value: value, rowid: rowid),
+          createCompanionCallback: ({
+            required String key,
+            required String value,
+            Value<int> rowid = const Value.absent(),
+          }) => SettingsCompanion.insert(key: key, value: value, rowid: rowid),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$SettingsTable, Setting>(table),
+                  BaseReferences<_$AppDatabase, $SettingsTable, Setting>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SettingsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SettingsTable,
+      Setting,
+      $$SettingsTableFilterComposer,
+      $$SettingsTableOrderingComposer,
+      $$SettingsTableAnnotationComposer,
+      $$SettingsTableCreateCompanionBuilder,
+      $$SettingsTableUpdateCompanionBuilder,
+      (Setting, BaseReferences<_$AppDatabase, $SettingsTable, Setting>),
+      Setting,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -6509,4 +6929,6 @@ class $AppDatabaseManager {
       $$FavoritesTableTableManager(_db, _db.favorites);
   $$WatchHistoryTableTableManager get watchHistory =>
       $$WatchHistoryTableTableManager(_db, _db.watchHistory);
+  $$SettingsTableTableManager get settings =>
+      $$SettingsTableTableManager(_db, _db.settings);
 }

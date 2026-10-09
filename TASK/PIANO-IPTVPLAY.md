@@ -124,7 +124,12 @@ Versioni verificate l'8 settembre 2026. **Pinnare tutto**: questo progetto dipen
 
 ### UI e utility
 
-`flutter_riverpod` (state), `go_router` (navigazione), `flutter_secure_storage` (credenziali Xtream — **mai nel DB**), `file_picker` (import locale: su web è un percorso di prima classe, non un ripiego), `cached_network_image` (loghi canali).
+`flutter_riverpod` (state), `go_router` (navigazione), `flutter_secure_storage` (credenziali Xtream — **mai nel DB**), `file_picker` (import locale: su web è un percorso di prima classe, non un ripiego), `cached_network_image` (loghi canali), `window_manager` (schermo intero su desktop: Flutter non espone alcuna API per togliere la cornice della finestra, e `SystemChrome.setEnabledSystemUIMode` vale solo su mobile).
+
+> **Debito dichiarato.** `flutter_secure_storage` e' elencato qui ma **non e'
+> fra le dipendenze**, e la password Xtream finisce comunque nel database:
+> `playlists.url` conserva la `get.php` del portale, che la contiene in chiaro.
+> Sistemarlo significa ricostruire le URL a runtime da un archivio cifrato.
 
 ### Librerie JS caricate a runtime sul web
 
@@ -250,16 +255,26 @@ programmes      id, epg_channel_id, start_utc, stop_utc, title, description, cat
 
 favorites       channel_id, added_at, sort_order
 watch_history   channel_id, watched_at, position_ms
+
+settings        key, value          # preferenze utente, chiave/valore (schema v3)
+                # volume, muto, riconnessione automatica, forma dell'elenco
+                # per tipo. Chiave/valore perche' una colonna per preferenza
+                # costerebbe una migrazione a ogni preferenza nuova.
 ```
 
 ### Indici — non opzionali con 50k canali
 
 ```sql
 CREATE INDEX idx_channels_playlist_group ON channels(playlist_id, group_id);
+CREATE INDEX idx_channels_playlist_kind  ON channels(playlist_id, kind, sort_order);
 CREATE INDEX idx_channels_tvg            ON channels(tvg_id);
 CREATE INDEX idx_programmes_chan_start   ON programmes(epg_channel_id, start_utc);
 CREATE INDEX idx_groups_playlist         ON groups(playlist_id, sort_order);
 ```
+
+`idx_channels_playlist_kind` serve alla divisione diretta/film/serie: e' la query
+calda della navigazione, e senza indice scegliere «Film» su una lista da 50k
+canali costa uno scan completo **a ogni pagina**, non solo alla prima.
 
 ### Tre decisioni che evitano problemi seri
 
@@ -443,6 +458,85 @@ Entrambi aperti su `media-kit/media-kit`, entrambi di agosto 2026, entrambi cent
 
 **#1441 — Windows: schermo nero su master HLS con sottotitoli.** `media_kit_libs_windows_video` 1.0.11 impacchetta `libmpv-2.dll` del **24 settembre 2023** (v0.36.0). Il demuxer HLS di quella build, di fronte a un master che contiene `#EXT-X-MEDIA:TYPE=SUBTITLES`, si aggancia alla rendition sottotitoli, scarica `.webvtt` in loop e non chiede mai un segmento video → nero infinito con `buffering=true`. Molte playlist IPTV commerciali hanno rendition sottotitoli.
 **Mitigazione confermata nella issue**: sostituire manualmente `libmpv-2.dll` con una build recente risolve. Windows è l'unica piattaforma media_kit ancora ferma a un core del 2023.
+
+### Quando il flusso cade
+
+Un flusso IPTV si interrompe per cause che non sono guasti dell'app: il provider
+satura le connessioni, il canale viene spostato, la rete ha un buco. Il player
+distingue **tre** situazioni, perche' il rimedio e' diverso in ognuna:
+
+| Situazione | Come si riconosce | Cosa fa |
+|---|---|---|
+| Non parte | errore in apertura, posizione mai avanzata | pannello «Il canale non parte», nessun tentativo automatico |
+| Si interrompe | EOF dichiarato dal backend, oppure posizione ferma dopo aver scorso | riapre da sola, con attese 2-4-8-15-30 s, poi si arrende |
+| E' finito | EOF con durata nota | pannello «Riproduzione finita» e il comando «Rivedi» |
+
+Tre regole che vanno insieme al meccanismo:
+
+- **Mai ritentare un canale che non e' mai partito.** Il problema e' l'indirizzo,
+  le credenziali o il formato: ritentare non li corregge, e molti pannelli
+  bandiscono l'IP dopo qualche tentativo fallito. E' lo stesso ragionamento per
+  cui `NetworkGateway` non ritenta un 401 (§9).
+- **La scala dei tentativi e' finita.** Un canale che il provider ha tolto non
+  torna: dopo cinque tentativi si passa la parola all'utente.
+- **Lo stallo si misura in battiti del timer, non sull'orologio di sistema.**
+  Mentre l'app e' in background i timer sono sospesi ma l'orologio cammina:
+  al ritorno un confronto con `DateTime.now()` diagnosticherebbe uno stallo di
+  dieci minuti su un flusso che era solo in pausa. E su certi stream live
+  non-seekable la posizione **non avanza mai**, anche mentre tutto funziona:
+  senza quella guardia la sorveglianza riaprirebbe in continuazione un canale
+  sano.
+
+### La barra di avanzamento
+
+«A che punto sono» vuol dire due cose diverse, e la barra ne mostra due:
+
+- **Contenuto a richiesta** (durata nota): posizione nel film, trascinabile, con
+  la parte gia' scaricata disegnata sotto. `PlayerBackend.seek` esiste per
+  questo.
+- **Diretta**: la posizione nel flusso non significa niente — parte da zero
+  quando apri il canale — mentre quello che conta e' **a che punto e' il
+  programma in onda**, cioe' lo stesso filetto che la riga del canale mostra
+  gia' in elenco.
+
+Senza durata e senza guida non si disegna nulla: una barra che non puo' dire
+dove sei e' decorazione. I colori sono bianco trasparente e non i filetti del
+tema: questa barra sta sopra il video, dove sotto puo' esserci qualunque
+immagine, e i grigi tarati per i pannelli spariscono sul nero.
+
+### Schermo intero
+
+Doppio clic sul video, oppure il tasto `F`. Non esiste una sola nozione di
+«tutto schermo»: su desktop si toglie la cornice della finestra
+(`window_manager`), nel browser si chiede `requestFullscreen` al documento —
+non all'elemento `<video>`, che e' montato dentro una `HtmlElementView` e si
+porterebbe via i comandi disegnati da Flutter. Su mobile il comando non viene
+offerto: l'app e' gia' a schermo pieno.
+
+> **Due trappole, una per piattaforma.**
+>
+> Il riconoscitore del doppio tocco va messo **sotto** i comandi, non attorno a
+> tutto lo stack: in cima tiene aperta l'arena dei gesti per ~300 ms a ogni
+> clic, e ogni pulsante del player risponde in ritardo aspettando un secondo
+> clic che quasi mai arriva.
+>
+> Sul web l'elemento `<video>` di `HtmlElementView` sta **sopra** la tela di
+> Flutter: senza `pointer-events: none` si prende i clic e i comandi dell'app
+> non ricevono nulla.
+
+### Volume
+
+`PlayerBackend.setVolume` normalizza da 0 a 1 perche' le librerie sottostanti
+non concordano: libmpv ragiona in percentuale, `video_player` e `<video>` in
+frazione. Il livello si applica **prima** della `open`, non dopo: aprire al
+massimo e abbassare un istante dopo si sente dalle casse a ogni cambio di
+canale.
+
+> **Su iOS non funziona sul web.** Safari tratta `video.volume` come di sola
+> lettura e lascia il livello ai tasti fisici del dispositivo. `muted` invece si
+> imposta, quindi azzerare silenzia davvero mentre i valori intermedi vengono
+> ignorati. Il backend lo registra nel log invece di fingere che il comando
+> abbia avuto effetto.
 
 ### Cascata di selezione sul web
 
@@ -1052,6 +1146,28 @@ Rimedio: forzare la rigenerazione del font. Basta una build con `--no-tree-shake
 
 La **CI non è esposta**: parte sempre da un checkout pulito, quindi non ha cache da riusare.
 
+#### Trappola: schermo intero da finestra massimizzata
+
+Trovata il 9 ottobre 2026 perché l'utente ha provato il doppio clic e non succedeva niente.
+
+`windowManager.setFullScreen(true)` su Windows porta sì la finestra a coprire il monitor, ma **salta il passaggio che toglie la cornice se la finestra era massimizzata** (`window_manager-0.5.2/windows/window_manager.cpp`: `SetAsFrameless()` sta dentro un `if (!g_maximized_before_fullscreen)`). Il risultato: la barra del titolo resta dov'è, lo schermo intero è solo nominale, e `isFullScreen()` risponde comunque `true` — quindi nemmeno l'icona del comando si accorge di nulla.
+
+Perché è insidiosa:
+
+- **A finestra normale funziona**: chi prova in sviluppo, con la finestra di default 1280×720, non la vede mai.
+- **Non c'è nessun errore**, e lo stato riletto dal plugin conferma l'esito sbagliato.
+- I **widget test non la vedono**: lì il plugin è un canale finto, e quello che si può verificare è solo *quali chiamate partono*.
+
+Rimedio, in `fullscreen_io.dart`: smassimizzare prima di entrare, e rimassimizzare uscendo. Misurato con una sonda che chiama l'API e rilegge i bordi della finestra, nei due casi:
+
+```
+finestra normale   dopo fullscreen: bounds=0,0 2560x1080 max=false  -> cornice via
+massimizzata       dopo fullscreen: bounds=0,0 2560x1080 max=true   -> cornice presente
+smassimizzata+fs   dopo fullscreen: bounds=0,0 2560x1080 max=false  -> cornice via
+```
+
+I bordi sono identici in tutti e tre i casi: **misurare la geometria non basta**, bisogna guardare la cornice.
+
 
 ---
 
@@ -1099,6 +1215,32 @@ Per iOS: pinna Xcode con `maxim-lobanov/setup-xcode` (**Xcode 26+ è obbligatori
 > ⚠️ **Attenzione ai costi macOS.** Il free tier GitHub è 2.000 min/mese (Free) o 3.000 (Pro/Team), ma i minuti sono Linux-equivalenti e **macOS ha moltiplicatore 10x**: su piano Free hai di fatto **~200 minuti reali di macOS al mese**, cioè circa 10-20 build iOS. Windows ha moltiplicatore 2x. Su **repo pubblici i runner standard sono gratuiti, macOS incluso** — è la leva di costo più grande se il progetto può essere open source. Alternativa: Codemagic offre 500 min/mese gratuiti su macOS M2 per account personali.
 
 > ⚠️ I package `media_kit_libs_*` sono **stub da 3-5 KB che scaricano le librerie native a build time** (Maven, GitHub releases, CocoaPods). Questo rende le build **non riproducibili** e la CI fragile se la rete o GitHub sono giù. Prevedi un mirror o una cache locale degli artefatti nativi.
+
+### Provare su iOS senza un Mac
+
+Trovato il 14 settembre 2026, partendo da una domanda pratica: come si testa iOS lavorando da Windows.
+
+Il job iOS della CI produce due artefatti scaricabili:
+
+- **`ios-unsigned-ipa`** — un `.ipa` **non firmato**. Un ipa è solo uno zip con l'app dentro una cartella `Payload/`, quindi si può impacchettare senza certificati. Su Windows lo si rifirma e installa sull'iPhone via USB con **Sideloadly** o **AltStore**, usando un Apple ID qualunque. **È l'unica via che non richiede un Mac.** Con un account gratuito il profilo dura **7 giorni**, poi va rifatto; con l'Apple Developer Program dura un anno.
+- **`ios-simulator`** — il bundle per il Simulatore, per chi un Mac ce l'ha: `xcrun simctl install booted Runner.app`.
+
+`xcodebuild -exportArchive` non è un'alternativa per il primo caso: pretende certificati e profili, che è esattamente ciò che non c'è in CI.
+
+**Cosa non si riesce a provare comunque, e perché:**
+
+| | Simulatore | Sideload con Apple ID gratuito |
+|---|---|---|
+| Interfaccia, import liste, navigazione | sì | sì |
+| Riproduzione video | no — libmpv in simulatore è inaffidabile | sì |
+| Trasmissione al televisore | no — niente multicast | **no**, vedi sotto |
+
+La **trasmissione al televisore non funziona su iOS** in nessuno dei due casi, e non è un limite del test ma dell'app. La scoperta usa SSDP, cioè un datagramma verso `239.255.255.250:1900`, e da iOS 14 il multicast richiede l'entitlement `com.apple.developer.networking.multicast`. Apple lo concede **solo su richiesta motivata** e **solo** a un account iscritto al Developer Program: con un Apple ID gratuito il profilo non lo contiene. Il divieto è silenzioso — il socket si apre, i pacchetti partono, non risponde nessuno.
+
+`ios/Runner/Runner.entitlements` esiste già ma **non è collegato al target**, di proposito: finché l'entitlement non è approvato può solo far fallire una firma, e non può far funzionare nulla. Il file spiega dentro di sé come attivarlo. Le chiavi `NSLocalNetworkUsageDescription` e `NSBonjourServices` sono invece già nell'`Info.plist`: senza, iOS non mostra nemmeno il prompt di accesso alla rete locale.
+
+> Il job iOS è `continue-on-error: true` perché `media_kit_libs_ios_video` è fermo a settembre 2023 (issue media-kit#1418, build iOS rotta da Flutter 3.44). Passa oggi, ma può smettere senza che nessuno abbia toccato il codice — vedi §12.
+
 
 ### Note store
 

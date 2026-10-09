@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../../core/net/user_agents.dart';
 import 'xtream_models.dart';
 
 /// Credenziali di un portale Xtream Codes.
@@ -73,13 +74,24 @@ class XtreamException implements Exception {
 /// Soprattutto, serve controllo totale sul **parsing tollerante**, perché i
 /// pannelli reali divergono parecchio dallo schema nominale.
 class XtreamClient {
-  XtreamClient(this.credentials, {http.Client? httpClient})
-    : _http = httpClient ?? http.Client(),
-      _ownsClient = httpClient == null;
+  XtreamClient(
+    this.credentials, {
+    http.Client? httpClient,
+    this.userAgent = UserAgents.vlc,
+  }) : _http = httpClient ?? http.Client(),
+       _ownsClient = httpClient == null;
 
   final XtreamCredentials credentials;
   final http.Client _http;
   final bool _ownsClient;
+
+  /// Come presentarsi al pannello. `null` per non mandare nulla.
+  final String? userAgent;
+
+  /// Senza, `dart:io` manda `Dart/3.x (dart:io)` e molti pannelli rispondono
+  /// 403 pur avendo credenziali valide. Su web il browser scarta l'header e
+  /// decide lui: lì non c'è modo di ovviare.
+  Map<String, String> get _headers => {'user-agent': ?userAgent};
 
   void close() {
     if (_ownsClient) _http.close();
@@ -100,7 +112,7 @@ class XtreamClient {
     final uri = _api(params);
     final http.Response res;
     try {
-      res = await _http.get(uri);
+      res = await _http.get(uri, headers: _headers);
     } catch (e) {
       throw XtreamException('rete non raggiungibile: $e');
     }
@@ -296,7 +308,7 @@ class XtreamClient {
 
   Future<bool> _defaultProbe(Uri url) async {
     try {
-      final head = await _http.head(url);
+      final head = await _http.head(url, headers: _headers);
       if (head.statusCode == 200) return true;
       // 405/501: HEAD non implementata, non significa che lo stream manchi.
       if (head.statusCode != 405 && head.statusCode != 501) return false;
@@ -304,7 +316,7 @@ class XtreamClient {
       return false;
     }
     try {
-      final res = await _http.get(url);
+      final res = await _http.get(url, headers: _headers);
       return res.statusCode == 200;
     } catch (_) {
       return false;

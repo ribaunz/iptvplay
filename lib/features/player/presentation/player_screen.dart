@@ -1,12 +1,17 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/settings.dart';
 import '../../../app/theme.dart';
 import '../../../core/storage/database.dart';
+import '../../../core/ui/fullscreen.dart';
 import '../../cast/data/cast_service.dart';
 import '../../cast/presentation/cast_sheet.dart';
 import '../player_backend.dart';
@@ -35,6 +40,84 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Timer? _hideTimer;
   String? _failure;
 
+  /// Attese fra i tentativi di riconnessione, in secondi.
+  ///
+  /// Crescenti e finite: un provider che ha chiuso per saturazione si libera in
+  /// qualche secondo, uno che ha tolto il canale non si libera mai. Dopo
+  /// l'ultimo tentativo il player si arrende e passa la parola all'utente,
+  /// invece di ritentare per ore su un canale che non esiste più.
+  static const _backoff = [2, 4, 8, 15, 30];
+
+  /// Il flusso si è interrotto dopo aver funzionato.
+  bool _interrupted = false;
+
+  /// Un contenuto a durata finita è arrivato alla fine: non è un guasto.
+  bool _finished = false;
+
+  bool _reconnecting = false;
+  int _attempt = 0;
+  Timer? _retryTimer;
+  int _retryIn = 0;
+
+  /// Sorveglianza dello stallo.
+  ///
+  /// Nessun backend segnala un flusso che si congela: l'audio tace, la
+  /// posizione si ferma e lo stato resta `playing`. L'unico modo di
+  /// accorgersene è guardare la posizione passare il tempo.
+  ///
+  /// Si contano i battiti del timer invece di leggere l'orologio di sistema, e
+  /// non per comodità di test: mentre l'app è in background i timer sono
+  /// sospesi ma l'orologio cammina, quindi al ritorno un confronto con
+  /// `DateTime.now()` diagnosticherebbe uno stallo di dieci minuti su un
+  /// flusso che era solo in pausa di sistema.
+  Timer? _watchdog;
+  Duration _lastPosition = Duration.zero;
+  Duration _tickPosition = Duration.zero;
+  int _stallTicks = 0;
+
+  static const _tick = Duration(seconds: 2);
+
+  /// Battiti senza avanzamento oltre i quali il flusso è considerato fermo.
+  static const _stallTicksLimit = 6;
+
+  /// Battiti oltre i quali un canale che non ha mai dato segno di vita viene
+  /// dichiarato fermo.
+  ///
+  /// Senza questo limite un provider che accetta la connessione e poi non manda
+  /// nulla lascia un rettangolo nero che carica per sempre: nessun backend
+  /// solleva un errore, perche' dal loro punto di vista si sta ancora
+  /// riempiendo il buffer. Venti secondi sono larghi anche per una rete lenta.
+  static const _noStartTicksLimit = 10;
+
+  int _noStartTicks = 0;
+
+  /// Il fallimento che si sta mostrando è il verdetto del sorvegliante, non un
+  /// errore del motore.
+  ///
+  /// I venti secondi sono una supposizione, non una misura: un canale lento ad
+  /// agganciarsi li supera e poi parte lo stesso. Il verdetto va quindi
+  /// ritirato alla prima prova di vita, e per ritirarlo bisogna sapere che era
+  /// nostro — un errore vero del motore non si cancella da solo.
+  bool _noStartDeclared = false;
+
+  /// La posizione è avanzata almeno una volta da quando il canale è aperto.
+  ///
+  /// È la guardia che rende innocua la sorveglianza dello stallo: su certi
+  /// stream live non-seekable la posizione resta a zero per sempre anche
+  /// mentre tutto funziona. Senza questa distinzione il player
+  /// riconnetterebbe in continuazione un canale sano.
+  bool _sawProgress = false;
+
+  /// Trascinamento della barra in corso.
+  ///
+  /// Mentre il dito e' giu' la barra segue il dito e **non** lo stato del
+  /// backend: altrimenti ogni aggiornamento di posizione la riporterebbe
+  /// indietro sotto le dita.
+  bool _scrubbing = false;
+  Duration _scrubTarget = Duration.zero;
+
+  bool _fullscreen = false;
+
   CastStatus _cast = const CastStatus(state: CastState.idle);
   StreamSubscription<CastStatus>? _castSub;
 
@@ -43,14 +126,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     super.initState();
     _start();
     _scheduleHide();
+    _watchdog = Timer.periodic(_tick, (_) => _checkStall());
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _retryTimer?.cancel();
+    _watchdog?.cancel();
     _sub?.cancel();
     _castSub?.cancel();
     _backend?.dispose();
+    // Lo schermo intero è una scelta per il video, non uno stato in cui
+    // lasciare il resto dell'app: chi tornava alla lista se la ritrovava in
+    // una finestra senza cornice, e senza cornice su Windows non c'è più la
+    // croce per chiudere — l'app diventa inchiudibile. Vale per ogni uscita
+    // (Esc, la freccia indietro, «Torna ai canali», il tasto di sistema),
+    // perciò sta qui e non su ciascun pulsante.
+    //
+    // Non si può attendere, `dispose` non è asincrona; non serve, perché la
+    // finestra non è lo stato di questo widget.
+    if (_fullscreen) Fullscreen.set(false);
     super.dispose();
   }
 
@@ -89,15 +185,34 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Future<void> _start() async {
     final backend = ref.read(playerBackendProvider);
     _backend = backend;
+
+    // La sottoscrizione precedente va chiusa **prima** di riaprire: lo stream
+    // di stato è broadcast, quindi una listen in più non dà errore, resta solo
+    // attiva per sempre. Con la riconnessione automatica questo significa un
+    // ascoltatore in più per ogni tentativo.
+    //
+    // Senza `await`, di proposito: su uno stream broadcast la consegna si
+    // interrompe subito, e il future di `cancel()` non si completa mai sotto
+    // il tempo finto dei test — attenderlo bloccherebbe tutta la riapertura.
+    unawaited(_sub?.cancel() ?? Future<void>.value());
+    _sub = null;
     await backend.initialize();
 
-    _sub = backend.stateStream.listen((s) {
-      if (!mounted) return;
-      setState(() {
-        _state = s;
-        if (s.error != null) _failure = s.error;
-      });
-    });
+    // Prima di aprire, non dopo: aprire al massimo e poi abbassare fa uscire
+    // dalle casse un istante a volume pieno a ogni cambio di canale. E prima
+    // ancora si attende che le preferenze salvate siano state lette, altrimenti
+    // il valore passato è il default e non quello scelto dall'utente.
+    await ref.read(settingsProvider.notifier).ready;
+    await backend.setVolume(ref.read(settingsProvider).effectiveVolume);
+
+    _lastPosition = Duration.zero;
+    _tickPosition = Duration.zero;
+    _stallTicks = 0;
+    _noStartTicks = 0;
+    _noStartDeclared = false;
+    _sawProgress = false;
+
+    _sub = backend.stateStream.listen(_onState);
 
     try {
       await backend.open(
@@ -113,7 +228,217 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
     } catch (e) {
       if (mounted) setState(() => _failure = '$e');
+      _onBreak();
     }
+  }
+
+  void _onState(PlayerState s) {
+    if (!mounted) return;
+
+    final advanced = s.position > _lastPosition;
+    if (advanced) {
+      _lastPosition = s.position;
+      _sawProgress = true;
+    }
+    // Le stesse due prove con cui il sorvegliante decide di tacere: la
+    // posizione che avanza, oppure un fotogramma che si vede.
+    final vivo = advanced || s.hasVideo;
+
+    setState(() {
+      _state = s;
+      if (s.error != null) {
+        _failure = s.error;
+      } else if (vivo && _noStartDeclared) {
+        // Il flusso ha appena smentito il verdetto: il pannello se ne va da
+        // solo. Lasciarlo lì coprirebbe un video che sta andando, e
+        // costringerebbe a chiuderlo a mano chi ormai sta già guardando.
+        _noStartDeclared = false;
+        _failure = null;
+      }
+      if (advanced && _interrupted) {
+        // Il flusso è tornato: si azzera la scala dei tentativi, altrimenti la
+        // prossima caduta partirebbe già dall'attesa più lunga.
+        _interrupted = false;
+        _attempt = 0;
+        _failure = null;
+      }
+    });
+
+    if (s.error != null) {
+      _onBreak();
+    } else if (s.ended) {
+      // Un contenuto con durata nota è semplicemente finito; una diretta che
+      // finisce è una diretta caduta.
+      if (s.isLive) {
+        _onBreak(fromEnd: true);
+      } else if (!_finished) {
+        setState(() => _finished = true);
+      }
+    }
+  }
+
+  void _checkStall() {
+    if (!mounted) return;
+    if (_interrupted || _finished || _retryTimer != null || _reconnecting) {
+      return;
+    }
+    // Mentre il televisore riproduce, qui non scorre niente per scelta.
+    if (_cast.isActive) {
+      _stallTicks = 0;
+      _noStartTicks = 0;
+      return;
+    }
+
+    // Due situazioni diverse, con due rimedi diversi: un canale che non è mai
+    // partito e uno che si è fermato dopo aver scorso.
+    if (!_sawProgress) {
+      // Su certi stream live la posizione non avanza mai anche mentre tutto
+      // funziona: se un fotogramma si vede, non c'è niente da dichiarare.
+      if (_state.hasVideo || _failure != null) return;
+      if (++_noStartTicks < _noStartTicksLimit) return;
+      _noStartTicks = 0;
+      setState(() {
+        _noStartDeclared = true;
+        _failure =
+            'Nessun dato dal provider dopo ${_noStartTicksLimit * 2} secondi.';
+      });
+      return;
+    }
+
+    // In pausa o mentre si riempie il buffer, una posizione ferma è normale.
+    if (!_state.playing || _state.buffering) {
+      _stallTicks = 0;
+      return;
+    }
+    if (_state.position != _tickPosition) {
+      _tickPosition = _state.position;
+      _stallTicks = 0;
+      return;
+    }
+    if (++_stallTicks < _stallTicksLimit) return;
+
+    _stallTicks = 0;
+    _onBreak();
+  }
+
+  /// Il flusso non arriva più.
+  ///
+  /// La riconnessione automatica vale **solo** per un canale che aveva già
+  /// iniziato a scorrere. Se non è mai partito il problema è l'indirizzo, le
+  /// credenziali o il formato: ritentare da soli non lo risolve e, sui pannelli
+  /// che bannano l'IP dopo qualche tentativo fallito, lo peggiora.
+  ///
+  /// [fromEnd] distingue l'unico segnale non congetturale: un EOF dichiarato
+  /// dal backend significa che la connessione era stata accettata e poi è
+  /// finita, quindi vale anche quando la posizione non è mai avanzata — cosa
+  /// che su certi stream live succede sempre, e che renderebbe altrimenti
+  /// invisibile proprio il caso da gestire.
+  void _onBreak({bool fromEnd = false}) {
+    if (_retryTimer != null || _reconnecting) return;
+    if (!fromEnd && !_sawProgress) return;
+
+    setState(() => _interrupted = true);
+
+    final auto = ref.read(settingsProvider).autoReconnect;
+    if (auto && _attempt < _backoff.length) {
+      _scheduleRetry();
+    }
+  }
+
+  void _scheduleRetry() {
+    _retryTimer?.cancel();
+    setState(() => _retryIn = _backoff[_attempt.clamp(0, _backoff.length - 1)]);
+    _retryTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return;
+      setState(() => _retryIn--);
+      if (_retryIn <= 0) {
+        t.cancel();
+        _retryTimer = null;
+        _reconnectNow();
+      }
+    });
+  }
+
+  Future<void> _reconnectNow() async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    if (!mounted) return;
+    setState(() {
+      _attempt++;
+      _reconnecting = true;
+      _failure = null;
+    });
+
+    await _start();
+
+    if (!mounted) return;
+    setState(() => _reconnecting = false);
+
+    // Se la riapertura è fallita di nuovo, `_start` ha già chiamato `_onBreak`
+    // ma trovava `_reconnecting` ancora true: la catena va ripresa qui, dove
+    // il tentativo è concluso. Senza, un errore in apertura fermerebbe la
+    // riconnessione al primo tentativo.
+    if (_failure != null && ref.read(settingsProvider).autoReconnect) {
+      if (_attempt < _backoff.length) {
+        _scheduleRetry();
+      }
+    }
+  }
+
+  /// Riprende un contenuto finito dall'inizio.
+  Future<void> _replay() async {
+    setState(() {
+      _finished = false;
+      _failure = null;
+      _attempt = 0;
+    });
+    await _start();
+  }
+
+  void _stopRetrying() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    setState(() => _retryIn = 0);
+    ref.read(settingsProvider.notifier).setAutoReconnect(false);
+  }
+
+  /// Schermo intero: via la cornice della finestra, e di nuovo indietro.
+  ///
+  /// Lo stato si rilegge invece di ricordarlo, perche' si puo' uscire anche da
+  /// fuori — il tasto Esc del browser, o il gestore di finestre del sistema.
+  Future<void> _toggleFullscreen() async {
+    if (!Fullscreen.isSupported) return;
+    await Fullscreen.toggle();
+    if (!mounted) return;
+    // Si rilegge invece di fidarsi del valore chiesto: il browser puo'
+    // rifiutare, e il sistema puo' uscire per conto suo. L'icona deve dire
+    // com'e' adesso, non cosa si era chiesto.
+    final actual = await Fullscreen.isOn();
+    if (!mounted) return;
+    setState(() => _fullscreen = actual);
+    _scheduleHide();
+  }
+
+  /// Sposta la riproduzione di [delta], dove spostarsi ha senso.
+  void _nudgePosition(Duration delta) {
+    final total = _state.duration;
+    if (total <= Duration.zero) return;
+    var target = _state.position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > total) target = total;
+    _seekTo(target);
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
+  Future<void> _seekTo(Duration target) async {
+    // La posizione di riferimento va riportata indietro con la riproduzione:
+    // altrimenti, dopo un salto all'indietro, nessun aggiornamento risulta un
+    // avanzamento finche' il flusso non ha ripreso il punto di prima.
+    _lastPosition = target;
+    _tickPosition = target;
+    _stallTicks = 0;
+    await _backend?.seek(target);
   }
 
   void _scheduleHide() {
@@ -128,36 +453,119 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (_controlsVisible) _scheduleHide();
   }
 
+  /// Pixel di rotella gia' accumulati e non ancora diventati uno scatto.
+  ///
+  /// La rotella non manda «uno scatto» ma una quantita' di pixel: misurata
+  /// su Windows, uno scatto vale 100. Un trackpad ne manda molti piccoli, e
+  /// senza accumulo un colpo solo porterebbe il volume da zero a tutto.
+  double _rotella = 0;
+
+  /// Quanti pixel di rotella valgono un gradino di volume.
+  static const _rotellaPerScatto = 100.0;
+
+  /// La rotella alza e abbassa il volume.
+  ///
+  /// In su e' il verso naturale per «di piu'», e in su la rotella manda
+  /// pixel **negativi**: e' lo stesso verso con cui scorre una lista.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final dy = event.scrollDelta.dy;
+    if (dy == 0) return;
+    // Cambiando verso si riparte da zero: i pixel avanzati dal verso opposto
+    // renderebbero il primo scatto indietro piu' corto degli altri.
+    if (_rotella != 0 && _rotella.sign != dy.sign) _rotella = 0;
+    _rotella += dy;
+    while (_rotella.abs() >= _rotellaPerScatto) {
+      final su = _rotella < 0;
+      _rotella += su ? _rotellaPerScatto : -_rotellaPerScatto;
+      _nudgeVolume(su ? 0.05 : -0.05);
+    }
+  }
+
+  void _nudgeVolume(double delta) {
+    final s = ref.read(settingsProvider);
+    ref.read(settingsProvider.notifier).setVolume(s.volume + delta);
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Il volume si applica al backend quando cambia, da qualunque comando
+    // arrivi: tasti, cursore o pulsante del muto.
+    ref.listen<AppSettings>(settingsProvider, (prev, next) {
+      if (prev?.effectiveVolume != next.effectiveVolume) {
+        _backend?.setVolume(next.effectiveVolume);
+      }
+    });
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Focus(
         autofocus: true,
         onKeyEvent: (node, event) {
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          if (event.logicalKey == LogicalKeyboardKey.escape) {
-            Navigator.of(context).maybePop();
-            return KeyEventResult.handled;
-          }
-          if (event.logicalKey == LogicalKeyboardKey.space) {
-            _state.playing ? _backend?.pause() : _backend?.play();
-            return KeyEventResult.handled;
+          switch (event.logicalKey) {
+            case LogicalKeyboardKey.escape:
+              Navigator.of(context).maybePop();
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.space:
+              _state.playing ? _backend?.pause() : _backend?.play();
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.arrowUp:
+              _nudgeVolume(0.05);
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.arrowDown:
+              _nudgeVolume(-0.05);
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.keyM:
+              ref.read(settingsProvider.notifier).toggleMuted();
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.keyF:
+              _toggleFullscreen();
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.arrowRight:
+              _nudgePosition(const Duration(seconds: 10));
+              return KeyEventResult.handled;
+            case LogicalKeyboardKey.arrowLeft:
+              _nudgePosition(const Duration(seconds: -10));
+              return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
         },
-        child: GestureDetector(
-          onTap: _toggleControls,
-          behavior: HitTestBehavior.opaque,
+        child: Listener(
+          // La rotella vale su tutto il player, comandi compresi: cercare il
+          // punto giusto dove girarla sarebbe un gioco di mira.
+          onPointerSignal: _onPointerSignal,
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (_backend != null) _backend!.buildView(context),
+              // I gesti stanno **sotto** ai comandi, non attorno a tutto: un
+              // riconoscitore di doppio tocco in cima allo stack terrebbe aperta
+              // l'arena per 300 ms a ogni clic, e ogni pulsante del player
+              // risponderebbe in ritardo in attesa di un secondo clic che quasi
+              // mai arriva.
+              GestureDetector(
+                onTap: _toggleControls,
+                // Registrato solo dove lo schermo intero esiste davvero.
+                onDoubleTap: Fullscreen.isSupported ? _toggleFullscreen : null,
+                behavior: HitTestBehavior.opaque,
+                child:
+                    _backend?.buildView(context) ??
+                    const ColoredBox(color: Colors.black),
+              ),
               if (_cast.isActive || _cast.state == CastState.connecting)
                 _castOverlay(),
               if (_cast.state == CastState.error) _castErrorPanel(),
-              if (_failure != null) _failurePanel(),
-              if (_failure == null && _state.buffering) _bufferingHint(),
+              if (_finished) _finishedPanel(),
+              if (!_finished && _interrupted) _interruptionPanel(),
+              if (!_finished && !_interrupted && _failure != null)
+                _failurePanel(),
+              if (_failure == null &&
+                  !_interrupted &&
+                  !_finished &&
+                  _state.buffering)
+                _bufferingHint(),
               AnimatedOpacity(
                 opacity: _controlsVisible ? 1 : 0,
                 duration: const Duration(milliseconds: 180),
@@ -211,46 +619,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Widget _castErrorPanel() {
-    return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 420),
-        margin: const EdgeInsets.all(Gap.lg),
-        padding: const EdgeInsets.all(Gap.lg),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.line),
+    return _panel(
+      title: 'Trasmissione non riuscita',
+      body: _cast.message ?? 'Il televisore non ha accettato il canale.',
+      actions: [
+        FilledButton(
+          onPressed: _castToTv,
+          child: const Text('Scegli un altro televisore'),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Trasmissione non riuscita',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: Gap.sm),
-            Text(
-              _cast.message ?? 'Il televisore non ha accettato il canale.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: Gap.lg),
-            Row(
-              children: [
-                FilledButton(
-                  onPressed: _castToTv,
-                  child: const Text('Scegli un altro televisore'),
-                ),
-                const SizedBox(width: Gap.md),
-                OutlinedButton(
-                  onPressed: _stopCast,
-                  child: const Text('Riproduci qui'),
-                ),
-              ],
-            ),
-          ],
+        OutlinedButton(
+          onPressed: _stopCast,
+          child: const Text('Riproduci qui'),
         ),
-      ),
+      ],
     );
   }
 
@@ -264,63 +645,168 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  /// Il fallimento dice cosa è andato storto e cosa si può fare, non "errore".
-  Widget _failurePanel() {
+  /// Contenitore comune dei pannelli: stesso modulo montato, non schede
+  /// diverse per ogni messaggio.
+  Widget _panel({
+    required String title,
+    required String body,
+    String? detail,
+    Widget? extra,
+    required List<Widget> actions,
+  }) {
     return Center(
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: const BoxConstraints(maxWidth: 440),
         margin: const EdgeInsets.all(Gap.lg),
         padding: const EdgeInsets.all(Gap.lg),
         decoration: BoxDecoration(
           color: AppColors.panel,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: kBorder,
           border: Border.all(color: AppColors.line),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Il canale non parte',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: Gap.sm),
-            Text(
-              'Il provider ha rifiutato la connessione o il formato non è '
-              'supportato da questo motore di riproduzione.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: Gap.md),
-            Text(
-              _failure!,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.muted,
-                height: 1.4,
+            Text(body, style: Theme.of(context).textTheme.bodySmall),
+            if (detail != null) ...[
+              const SizedBox(height: Gap.md),
+              Text(
+                detail,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.muted,
+                  height: 1.4,
+                ),
               ),
-            ),
+            ],
+            if (extra != null) ...[const SizedBox(height: Gap.md), extra],
             const SizedBox(height: Gap.lg),
-            Row(
-              children: [
-                FilledButton(
-                  onPressed: () {
-                    setState(() => _failure = null);
-                    _start();
-                  },
-                  child: const Text('Riprova'),
-                ),
-                const SizedBox(width: Gap.md),
-                OutlinedButton(
-                  onPressed: _switchBackend,
-                  child: const Text('Cambia motore'),
-                ),
-              ],
+            Wrap(spacing: Gap.md, runSpacing: Gap.sm, children: actions),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Il flusso è caduto a metà.
+  ///
+  /// È un pannello diverso da «il canale non parte» perché il rimedio è
+  /// diverso: qui l'indirizzo e le credenziali hanno già funzionato, e quasi
+  /// sempre basta riaprire.
+  Widget _interruptionPanel() {
+    final auto = ref.watch(settingsProvider).autoReconnect;
+    final exhausted = _attempt >= _backoff.length;
+
+    final String body;
+    if (_reconnecting) {
+      body = 'Riconnessione in corso…';
+    } else if (_retryTimer != null) {
+      body =
+          'Riprovo tra $_retryIn s · tentativo ${_attempt + 1} di '
+          '${_backoff.length}';
+    } else if (auto && exhausted) {
+      body =
+          'Dopo ${_backoff.length} tentativi il flusso non è tornato. '
+          'Il provider potrebbe aver chiuso il canale, o aver raggiunto il '
+          'numero massimo di connessioni.';
+    } else {
+      body =
+          'Il provider ha chiuso la connessione. Riaprire il canale di solito '
+          'basta.';
+    }
+
+    return _panel(
+      title: 'Il flusso si è interrotto',
+      body: body,
+      detail: _failure,
+      extra: _autoReconnectSwitch(),
+      actions: [
+        FilledButton(
+          onPressed: _reconnecting ? null : _reconnectNow,
+          child: const Text('Riprova adesso'),
+        ),
+        if (_retryTimer != null)
+          OutlinedButton(
+            onPressed: _stopRetrying,
+            child: const Text('Non riprovare'),
+          ),
+      ],
+    );
+  }
+
+  Widget _autoReconnectSwitch() {
+    final auto = ref.watch(settingsProvider).autoReconnect;
+    return InkWell(
+      onTap: () => ref.read(settingsProvider.notifier).setAutoReconnect(!auto),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+        child: Row(
+          children: [
+            Icon(
+              auto ? Icons.check_box_rounded : Icons.check_box_outline_blank,
+              size: 18,
+              color: auto ? AppColors.tally : AppColors.muted,
+            ),
+            const SizedBox(width: Gap.sm),
+            // Elastica: l'etichetta e' lunga e su un telefono stretto, o con
+            // il testo ingrandito dalle impostazioni di sistema, sborderebbe.
+            const Expanded(
+              child: Text(
+                'Riprende da sola sullo stesso canale',
+                style: TextStyle(fontSize: 13, color: AppColors.muted),
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Fine di un contenuto a durata nota: non c'è nulla da riparare.
+  Widget _finishedPanel() {
+    return _panel(
+      title: 'Riproduzione finita',
+      body: 'Il contenuto è arrivato alla fine.',
+      actions: [
+        FilledButton(onPressed: _replay, child: const Text('Rivedi')),
+        OutlinedButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: const Text('Torna ai canali'),
+        ),
+      ],
+    );
+  }
+
+  /// Il fallimento dice cosa è andato storto e cosa si può fare, non "errore".
+  Widget _failurePanel() {
+    return _panel(
+      title: 'Il canale non parte',
+      body:
+          'Il provider ha rifiutato la connessione o il formato non è '
+          'supportato da questo motore di riproduzione.',
+      detail: _failure,
+      actions: [
+        FilledButton(
+          onPressed: () {
+            setState(() => _failure = null);
+            _start();
+          },
+          child: const Text('Riprova'),
+        ),
+        // Stesso motivo della fascia inferiore: su web il motore e'
+        // uno solo, e offrire di cambiarlo manderebbe l'utente a
+        // premere un pulsante che non puo' aiutarlo.
+        if (!kIsWeb)
+          OutlinedButton(
+            onPressed: _switchBackend,
+            child: const Text('Cambia motore'),
+          ),
+      ],
     );
   }
 
@@ -338,6 +824,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     setState(() {
       _failure = null;
+      _interrupted = false;
+      _finished = false;
+      _attempt = 0;
       _state = const PlayerState();
     });
     await _start();
@@ -435,22 +924,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ),
         ),
         const Spacer(),
-        // Fascia inferiore: comandi essenziali.
-        Container(
-          padding: EdgeInsets.only(
-            left: Gap.md,
-            right: Gap.md,
-            top: Gap.lg,
-            bottom: MediaQuery.paddingOf(context).bottom + Gap.md,
-          ),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [Colors.black.withValues(alpha: 0.8), Colors.transparent],
-            ),
-          ),
-          child: Row(
+        _bottomBar(),
+      ],
+    );
+  }
+
+  Widget _bottomBar() {
+    // Sotto questa larghezza il cursore del volume e il nome del motore
+    // schiacciano i comandi che contano: restano le icone, che bastano.
+    final roomForFader = MediaQuery.sizeOf(context).width >= 440;
+
+    return Container(
+      padding: EdgeInsets.only(
+        left: Gap.md,
+        right: Gap.md,
+        top: Gap.lg,
+        bottom: MediaQuery.paddingOf(context).bottom + Gap.md,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Colors.black.withValues(alpha: 0.8), Colors.transparent],
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _timeline(),
+          Row(
             children: [
               IconButton(
                 iconSize: 34,
@@ -464,36 +966,436 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 tooltip: _state.playing ? 'Metti in pausa' : 'Riprendi',
               ),
               const SizedBox(width: Gap.md),
-              Text(
-                _state.isLive ? 'In diretta' : _elapsed(),
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.muted,
-                  fontFeatures: [kTabular],
+              // I tempi stanno sotto la barra: qui resterebbero ripetuti. In
+              // diretta la barra puo' non esserci, e allora lo stato va detto.
+              if (_state.isLive)
+                const Flexible(
+                  child: Text(
+                    'In diretta',
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    style: TextStyle(fontSize: 13, color: AppColors.muted),
+                  ),
                 ),
-              ),
               const Spacer(),
-              Text(
-                ref.watch(playerBackendProvider).name,
-                style: const TextStyle(fontSize: 12, color: AppColors.muted),
-              ),
-              IconButton(
-                onPressed: _switchBackend,
-                icon: const Icon(Icons.tune_rounded, size: 20),
-                tooltip: 'Cambia motore di riproduzione',
-              ),
+              _volumeControl(showFader: roomForFader),
+              _playbackModeButton(showLabel: roomForFader),
+              // Su web non esiste un secondo motore da scegliere: fvp e
+              // media_kit sono entrambi nativi. Mostrare il comando
+              // prometterebbe un rimedio che li' non c'e'.
+              if (!kIsWeb) ...[
+                if (roomForFader)
+                  Flexible(
+                    child: Text(
+                      ref.watch(playerBackendProvider).name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                IconButton(
+                  onPressed: _switchBackend,
+                  icon: const Icon(Icons.tune_rounded, size: 20),
+                  tooltip: 'Cambia motore di riproduzione',
+                ),
+              ],
+              if (Fullscreen.isSupported)
+                IconButton(
+                  onPressed: _toggleFullscreen,
+                  icon: Icon(
+                    _fullscreen
+                        ? Icons.fullscreen_exit_rounded
+                        : Icons.fullscreen_rounded,
+                    size: 20,
+                  ),
+                  tooltip: _fullscreen
+                      ? 'Esci da schermo intero'
+                      : 'Schermo intero (doppio clic)',
+                ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Muto e livello, con il livello che resta leggibile a occhio.
+  ///
+  /// Il cursore è un fader: traccia sottile e cappuccio rettangolare, come su
+  /// un banco audio. Non prende l'ambra, che in questo tema significa «in
+  /// onda»: il volume è una regolazione, non uno stato della trasmissione.
+  Widget _volumeControl({required bool showFader}) {
+    final settings = ref.watch(settingsProvider);
+    final level = settings.effectiveVolume;
+
+    final IconData icon;
+    if (settings.muted || level == 0) {
+      icon = Icons.volume_off_rounded;
+    } else if (level < 0.5) {
+      icon = Icons.volume_down_rounded;
+    } else {
+      icon = Icons.volume_up_rounded;
+    }
+
+    return Row(
+      children: [
+        IconButton(
+          onPressed: () => ref.read(settingsProvider.notifier).toggleMuted(),
+          icon: Icon(
+            icon,
+            size: 20,
+            color: settings.muted ? AppColors.muted : null,
+          ),
+          tooltip: settings.muted ? 'Riattiva l\'audio' : 'Silenzia',
         ),
+        if (showFader)
+          SizedBox(
+            width: 108,
+            child: SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 2,
+                activeTrackColor: AppColors.text,
+                inactiveTrackColor: AppColors.line,
+                thumbShape: const _FaderCap(),
+                overlayShape: SliderComponentShape.noOverlay,
+                showValueIndicator: ShowValueIndicator.never,
+              ),
+              child: Slider(
+                value: level,
+                onChanged: (v) {
+                  // Mentre si trascina si aggiorna soltanto: la preferenza si
+                  // salva quando il dito si stacca.
+                  ref
+                      .read(settingsProvider.notifier)
+                      .setVolume(v, persist: false);
+                  _scheduleHide();
+                },
+                onChangeEnd: (v) =>
+                    ref.read(settingsProvider.notifier).setVolume(v),
+              ),
+            ),
+          ),
       ],
     );
   }
 
-  String _elapsed() {
-    String two(int v) => v.toString().padLeft(2, '0');
-    final p = _state.position;
-    final d = _state.duration;
-    return '${two(p.inMinutes)}:${two(p.inSeconds % 60)} / '
-        '${two(d.inMinutes)}:${two(d.inSeconds % 60)}';
+  /// L'interruttore della riconnessione.
+  ///
+  /// L'ambra si accende **solo mentre un tentativo è in corso**, non perche'
+  /// l'opzione è attiva: in questo tema l'ambra segnala qualcosa che sta
+  /// succedendo, e l'opzione è attiva di default, quindi marcarla
+  /// significherebbe un accento acceso in ogni sessione per nessun motivo.
+  /// Che cosa deve succedere quando il flusso si interrompe.
+  ///
+  /// Prima era un'icona che cambiava solo opacita': non diceva ne' cosa fosse
+  /// ne' in quale dei due modi ti trovassi, e l'unico modo di saperlo era
+  /// fermarsi col puntatore sopra. Qui i due modi hanno un nome e una frase
+  /// che dice cosa fanno, perche' un comando che si capisce solo provandolo
+  /// non e' un comando.
+  Widget _playbackModeButton({required bool showLabel}) {
+    final auto = ref.watch(settingsProvider).autoReconnect;
+    final working = _retryTimer != null || _reconnecting;
+    // L'ambra qui significa «ci sta lavorando adesso», non «e' attivo»: un
+    // accento che sta sempre acceso smette di dire qualcosa.
+    final color = working ? AppColors.tally : AppColors.muted;
+    final icona = auto ? Icons.autorenew_rounded : Icons.trending_flat_rounded;
+
+    return PopupMenuButton<bool>(
+      tooltip: 'Tipo di riproduzione',
+      initialValue: auto,
+      position: PopupMenuPosition.over,
+      color: AppColors.panel,
+      shape: RoundedRectangleBorder(
+        borderRadius: kBorder,
+        side: const BorderSide(color: AppColors.line),
+      ),
+      onSelected: (v) =>
+          ref.read(settingsProvider.notifier).setAutoReconnect(v),
+      itemBuilder: (context) => [
+        _modeItem(
+          value: true,
+          scelto: auto,
+          icona: Icons.autorenew_rounded,
+          titolo: 'Riprende da sola',
+          dettaglio: 'Se il flusso si interrompe, riparte sullo stesso canale.',
+        ),
+        _modeItem(
+          value: false,
+          scelto: !auto,
+          icona: Icons.trending_flat_rounded,
+          titolo: 'Riproduzione normale',
+          dettaglio: 'Se il flusso si interrompe, si ferma e aspetta te.',
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Gap.sm,
+          vertical: Gap.sm,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icona, size: 20, color: color),
+            if (showLabel) ...[
+              const SizedBox(width: Gap.xs),
+              Text(
+                auto ? 'Riprende da sola' : 'Normale',
+                style: TextStyle(fontSize: 12, color: color),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<bool> _modeItem({
+    required bool value,
+    required bool scelto,
+    required IconData icona,
+    required String titolo,
+    required String dettaglio,
+  }) {
+    return PopupMenuItem<bool>(
+      value: value,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            scelto ? Icons.check_rounded : icona,
+            size: 18,
+            color: scelto ? AppColors.tally : AppColors.muted,
+          ),
+          const SizedBox(width: Gap.md),
+          // Elastica: le frasi sono lunghe, e con il testo ingrandito dalle
+          // impostazioni di sistema sborderebbero.
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  titolo,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: scelto ? AppColors.text : AppColors.muted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  dettaglio,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.muted,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// La barra di avanzamento.
+  ///
+  /// Due cose diverse con lo stesso segno, perche' «a che punto sono» vuol dire
+  /// due cose diverse:
+  ///
+  /// - su un contenuto a richiesta e' la posizione nel film, e si trascina;
+  /// - su una diretta la posizione nel flusso non significa niente (parte da
+  ///   zero quando apri il canale), mentre quello che conta e' **a che punto e'
+  ///   il programma in onda** — ed e' esattamente il filetto che la riga del
+  ///   canale mostra gia' in elenco.
+  ///
+  /// Senza durata e senza guida non si disegna nulla: una barra che non puo'
+  /// dire dove sei e' decorazione.
+  Widget _timeline() {
+    final total = _state.duration;
+    if (total > Duration.zero) return _seekBar(total);
+
+    final now = widget.now;
+    if (now == null) return const SizedBox.shrink();
+    final span = now.stopUtc.difference(now.startUtc).inSeconds;
+    if (span <= 0) return const SizedBox.shrink();
+
+    final elapsed = DateTime.now().toUtc().difference(now.startUtc).inSeconds;
+    return _barWithLabels(
+      fraction: (elapsed / span).clamp(0.0, 1.0),
+      buffered: 0,
+      left: _hhmm(now.startUtc),
+      right: _hhmm(now.stopUtc),
+      handle: false,
+    );
+  }
+
+  Widget _seekBar(Duration total) {
+    final position = _scrubbing ? _scrubTarget : _state.position;
+    final ms = total.inMilliseconds;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        void follow(double dx) {
+          final f = (dx / constraints.maxWidth).clamp(0.0, 1.0);
+          setState(() {
+            _scrubbing = true;
+            _scrubTarget = Duration(milliseconds: (ms * f).round());
+          });
+          _scheduleHide();
+        }
+
+        void commit() {
+          final target = _scrubTarget;
+          setState(() => _scrubbing = false);
+          _seekTo(target);
+        }
+
+        return GestureDetector(
+          // Opaco: l'area della barra deve catturare il tocco, altrimenti
+          // arriva al gesto che nasconde i comandi e la barra e' intoccabile.
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (e) => follow(e.localPosition.dx),
+          onTapUp: (_) => commit(),
+          onHorizontalDragStart: (e) => follow(e.localPosition.dx),
+          onHorizontalDragUpdate: (e) => follow(e.localPosition.dx),
+          onHorizontalDragEnd: (_) => commit(),
+          child: _barWithLabels(
+            fraction: (position.inMilliseconds / ms).clamp(0.0, 1.0),
+            buffered: (_state.buffered.inMilliseconds / ms).clamp(0.0, 1.0),
+            left: _clock(position),
+            right: _clock(total),
+            handle: true,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _barWithLabels({
+    required double fraction,
+    required double buffered,
+    required String left,
+    required String right,
+    required bool handle,
+  }) {
+    const labels = TextStyle(
+      fontSize: 12,
+      color: AppColors.muted,
+      fontFeatures: [kTabular],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Gap.sm),
+      child: Column(
+        children: [
+          SizedBox(
+            height: handle ? 16 : 6,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                // Bianco trasparente e non i filetti del tema: questa barra
+                // sta sopra il video, non sopra un pannello, e sotto puo'
+                // esserci qualunque immagine. I grigi tarati per i pannelli
+                // spariscono sul nero e urlano sul chiaro.
+                SizedBox(
+                  height: 3,
+                  width: double.infinity,
+                  child: ColoredBox(
+                    color: Colors.white.withValues(alpha: 0.25),
+                  ),
+                ),
+                // Quanto e' gia' scaricato: dice se spostarsi li' sara'
+                // immediato o costera' un'attesa.
+                FractionallySizedBox(
+                  widthFactor: buffered,
+                  child: SizedBox(
+                    height: 3,
+                    child: ColoredBox(
+                      color: Colors.white.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ),
+                FractionallySizedBox(
+                  widthFactor: fraction,
+                  child: const SizedBox(
+                    height: 3,
+                    child: ColoredBox(color: AppColors.tally),
+                  ),
+                ),
+                if (handle)
+                  Align(
+                    alignment: Alignment(fraction * 2 - 1, 0),
+                    child: Container(
+                      width: 4,
+                      height: 16,
+                      color: AppColors.text,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: Gap.xs),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(left, style: labels),
+              Text(right, style: labels),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _hhmm(DateTime utc) {
+    final t = utc.toLocal();
+    return '${_two(t.hour)}:${_two(t.minute)}';
+  }
+
+  static String _two(int v) => v.toString().padLeft(2, '0');
+
+  /// Durata leggibile: le ore compaiono solo quando ci sono.
+  ///
+  /// Un film dura piu' di un'ora, e `95:30` non e' un orario che qualcuno
+  /// legga come un'ora e trentacinque.
+  static String _clock(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    final sec = d.inSeconds % 60;
+    return h > 0 ? '$h:${_two(m)}:${_two(sec)}' : '${_two(m)}:${_two(sec)}';
+  }
+}
+
+/// Cappuccio del fader: una barretta, non un pallino.
+class _FaderCap extends SliderComponentShape {
+  const _FaderCap();
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) => const Size(8, 16);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final rect = Rect.fromCenter(center: center, width: 4, height: 16);
+    context.canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(1)),
+      Paint()..color = AppColors.text,
+    );
   }
 }
