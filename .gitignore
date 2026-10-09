@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Il compilatore Kotlin tiene qui i file di sessione del demone: cambiano a ogni
+# build e non dicono niente a nessuno.
+/android/.kotlin/
